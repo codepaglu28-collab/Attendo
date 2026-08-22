@@ -2465,9 +2465,9 @@ function renderHistory(root){
   document.getElementById('hist-class').onchange = (e)=>{ state._histClass=e.target.value; renderHistory(root); };
   document.getElementById('hist-status').onchange = (e)=>{ state._histStatus=e.target.value; renderHistory(root); };
   document.getElementById('hist-export').onclick = ()=>{
-    const r=[["Date","Student","Class","Subject","Status"], ...rows.map(x=>[x.date,x.student,x.cls,x.subject,x.status])];
-    const csv = r.map(row=>row.map(v=>`"${v}"`).join(",")).join(String.fromCharCode(10));
-    const blob = new Blob([csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='attendance-history.csv'; a.click();
+    const r=[["Date","Student","Class","Subject","Status"], ...rows.map(x=>[`'${prettyDate(x.date)}`,x.student,x.cls,x.subject,x.status])];
+    const csv = r.map(row=>row.map(v=>`"${v}"`).join(",")).join(String.fromCharCode(13)+String.fromCharCode(10));
+    const blob = new Blob(['\uFEFF'+csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='attendance-history.csv'; a.click();
   };
 }
 
