@@ -376,11 +376,19 @@ tbody tr.clickable:hover{background:#FAFBFE;}
 .theme-opt.active{background:var(--blue-soft); color:var(--blue-deep); border-color:var(--blue);}
 
 /* ============================= MOBILE ============================= */
-.hamburger, .mobile-drawer, .drawer-overlay{display:none;}
+.hamburger, .mobile-drawer, .drawer-overlay, .landing-hamburger{display:none;}
 @media (max-width: 880px){
-  .hero{grid-template-columns:1fr; text-align:center;}
+  .container{padding:0 16px;}
+  .nav-landing .container{height:60px;}
+  /* The marketing links (Features / How it works / FAQ) had no mobile
+     home — they never collapsed into a menu and just overflowed the
+     64px nav bar next to the logo and both auth buttons. Hide them on
+     small screens so the nav stays a clean logo + 2 buttons row. */
+  .nav-links{display:none;}
+  .hero{grid-template-columns:1fr; text-align:center; padding:44px 0 56px;}
   .hero p{margin-left:auto; margin-right:auto;}
-  .hero-cta, .hero-trust{justify-content:center;}
+  .hero-cta{justify-content:center; flex-wrap:wrap;}
+  .hero-trust{justify-content:center; flex-wrap:wrap; gap:14px 20px;}
   .grid-4{grid-template-columns:repeat(2,1fr);}
   .grid-3, .grid-2{grid-template-columns:1fr;}
   .security-card{grid-template-columns:1fr;}
@@ -389,6 +397,7 @@ tbody tr.clickable:hover{background:#FAFBFE;}
   .hamburger{display:flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:10px; background:none; color:var(--navy); flex-shrink:0;}
   .hamburger svg{width:20px; height:20px;}
   .search-box{display:none;}
+  .topbar{padding:0 16px;}
   .view{padding:18px;}
   .mobile-drawer{
     display:flex; position:fixed; top:0; left:0; bottom:0; width:250px; background:var(--surface); z-index:700;
@@ -398,6 +407,22 @@ tbody tr.clickable:hover{background:#FAFBFE;}
   .drawer-overlay{display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); z-index:650;}
   .drawer-overlay.open{display:block;}
   .modal-grid2{grid-template-columns:1fr;}
+}
+
+/* Extra-small phones: the 880px breakpoint alone still left oversized
+   hero type and cramped nav/CTA buttons on ~360-400px wide screens. */
+@media (max-width: 480px){
+  .container{padding:0 14px;}
+  .hero h1{font-size:34px;}
+  .hero p{font-size:15.5px;}
+  .section-title{font-size:24px;}
+  .section{padding:44px 0;}
+  .grid-4{grid-template-columns:1fr 1fr; gap:12px;}
+  .nav-landing .container > div:last-child{gap:6px;}
+  .nav-landing .btn{padding:8px 10px; font-size:13px;}
+  .nav-landing .btn-primary{padding:8px 14px;}
+  .hero-cta .btn{width:100%;}
+  .hero-cta{flex-direction:column;}
 }
 </style>
 </head>
@@ -423,6 +448,7 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     addDoc,
     updateDoc,
     deleteDoc,
+    writeBatch,
     query,
     where
   } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
@@ -456,6 +482,7 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     addDoc,
     updateDoc,
     deleteDoc,
+    writeBatch,
     query,
     where
   };
@@ -702,6 +729,37 @@ async function loadData(){
    SAVE DATA TO FIRESTORE
 --------------------------------------------------------------------------- */
 
+/*
+ * persist() used to re-download the ENTIRE students/classes/attendance
+ * collections (3 full reads) and then write every single record back
+ * one-at-a-time with a sequential `await` per document — even when only
+ * one attendance record actually changed. On any real amount of data
+ * that meant dozens/hundreds of round-trips for a single save, which is
+ * what caused the lag when marking attendance or creating an account.
+ *
+ * Fixed version:
+ *  - Diffs against the in-memory `state._firestoreCache` (already kept
+ *    up to date by loadData/persist) instead of re-fetching from
+ *    Firestore, so there are ZERO extra reads on save.
+ *  - Only writes/deletes documents that actually changed.
+ *  - Queues every write/delete into a single Firestore writeBatch, so
+ *    the whole save is ONE network round-trip (chunked automatically if
+ *    an org ever has 400+ changed records at once, well beyond normal use).
+ */
+function _recEqual(a, b){
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+async function _commitInChunks(fb, ops){
+  // Firestore batches max out at 500 operations; chunk defensively.
+  const CHUNK = 400;
+  for(let i = 0; i < ops.length; i += CHUNK){
+    const batch = fb.writeBatch(fb.db);
+    ops.slice(i, i + CHUNK).forEach(op => op(batch));
+    await batch.commit();
+  }
+}
+
 async function persist(data){
 
   try{
@@ -720,77 +778,46 @@ async function persist(data){
     }
 
     const organizationId = getOrganizationId();
+    const prev = state._firestoreCache || { students:[], classes:[], attendance:{}, org:{} };
 
+    const ops = [];
 
     /* ================================================================
-       ORGANIZATION
+       ORGANIZATION (only write if it actually changed)
     ================================================================= */
 
-    await fb.setDoc(
-      fb.doc(
-        fb.db,
-        'organizations',
-        organizationId
-      ),
-      {
-        name: data.org?.name || "My Organization",
-        type: data.org?.type || "School",
-        ownerId: user.uid
-      },
-      {
-        merge:true
-      }
-    );
+    const newOrg = {
+      name: data.org?.name || "My Organization",
+      type: data.org?.type || "School",
+      ownerId: user.uid
+    };
+
+    if(!_recEqual(newOrg, { ...prev.org, ownerId: user.uid })){
+      const orgRef = fb.doc(fb.db, 'organizations', organizationId);
+      ops.push(batch => batch.set(orgRef, newOrg, { merge:true }));
+    }
 
 
     /* ================================================================
        STUDENTS
     ================================================================= */
 
-    const studentsCollection = fb.collection(
-      fb.db,
-      'organizations',
-      organizationId,
-      'students'
-    );
+    const studentsCollection = fb.collection(fb.db, 'organizations', organizationId, 'students');
+    const prevStudents = new Map((prev.students || []).map(s => [s.id, s]));
+    const nextStudents = new Map((data.students || []).map(s => [s.id, s]));
 
-    const existingStudentsSnap =
-      await fb.getDocs(studentsCollection);
-
-    const currentStudentIds =
-      new Set((data.students || []).map(s => s.id));
-
-
-    /* Delete students removed from Attendo */
-
-    for(const docSnap of existingStudentsSnap.docs){
-
-      if(!currentStudentIds.has(docSnap.id)){
-
-        await fb.deleteDoc(docSnap.ref);
-
+    for(const id of prevStudents.keys()){
+      if(!nextStudents.has(id)){
+        const ref = fb.doc(studentsCollection, id);
+        ops.push(batch => batch.delete(ref));
       }
-
     }
-
-
-    /* Save current students */
-
-    for(const student of (data.students || [])){
-
-      const {id, ...studentData} = student;
-
-      await fb.setDoc(
-        fb.doc(
-          studentsCollection,
-          id
-        ),
-        studentData,
-        {
-          merge:true
-        }
-      );
-
+    for(const [id, student] of nextStudents){
+      if(!_recEqual(student, prevStudents.get(id))){
+        const { id: _drop, ...studentData } = student;
+        const ref = fb.doc(studentsCollection, id);
+        ops.push(batch => batch.set(ref, studentData, { merge:true }));
+      }
     }
 
 
@@ -798,50 +825,22 @@ async function persist(data){
        CLASSES
     ================================================================= */
 
-    const classesCollection = fb.collection(
-      fb.db,
-      'organizations',
-      organizationId,
-      'classes'
-    );
+    const classesCollection = fb.collection(fb.db, 'organizations', organizationId, 'classes');
+    const prevClasses = new Map((prev.classes || []).map(c => [c.id, c]));
+    const nextClasses = new Map((data.classes || []).map(c => [c.id, c]));
 
-    const existingClassesSnap =
-      await fb.getDocs(classesCollection);
-
-    const currentClassIds =
-      new Set((data.classes || []).map(c => c.id));
-
-
-    /* Delete removed classes */
-
-    for(const docSnap of existingClassesSnap.docs){
-
-      if(!currentClassIds.has(docSnap.id)){
-
-        await fb.deleteDoc(docSnap.ref);
-
+    for(const id of prevClasses.keys()){
+      if(!nextClasses.has(id)){
+        const ref = fb.doc(classesCollection, id);
+        ops.push(batch => batch.delete(ref));
       }
-
     }
-
-
-    /* Save current classes */
-
-    for(const cls of (data.classes || [])){
-
-      const {id, ...classData} = cls;
-
-      await fb.setDoc(
-        fb.doc(
-          classesCollection,
-          id
-        ),
-        classData,
-        {
-          merge:true
-        }
-      );
-
+    for(const [id, cls] of nextClasses){
+      if(!_recEqual(cls, prevClasses.get(id))){
+        const { id: _drop, ...classData } = cls;
+        const ref = fb.doc(classesCollection, id);
+        ops.push(batch => batch.set(ref, classData, { merge:true }));
+      }
     }
 
 
@@ -849,54 +848,34 @@ async function persist(data){
        ATTENDANCE
     ================================================================= */
 
-    const attendanceCollection = fb.collection(
-      fb.db,
-      'organizations',
-      organizationId,
-      'attendance'
-    );
+    const attendanceCollection = fb.collection(fb.db, 'organizations', organizationId, 'attendance');
+    const prevAttendance = prev.attendance || {};
+    const nextAttendance = data.attendance || {};
 
-    const existingAttendanceSnap =
-      await fb.getDocs(attendanceCollection);
-
-    const currentAttendanceIds =
-      new Set(
-        Object.keys(data.attendance || {})
-      );
-
-
-    /* Delete removed attendance records */
-
-    for(const docSnap of existingAttendanceSnap.docs){
-
-      if(!currentAttendanceIds.has(docSnap.id)){
-
-        await fb.deleteDoc(docSnap.ref);
-
+    for(const id of Object.keys(prevAttendance)){
+      if(!(id in nextAttendance)){
+        const ref = fb.doc(attendanceCollection, id);
+        ops.push(batch => batch.delete(ref));
       }
-
+    }
+    for(const [id, record] of Object.entries(nextAttendance)){
+      if(!_recEqual(record, prevAttendance[id])){
+        const ref = fb.doc(attendanceCollection, id);
+        ops.push(batch => batch.set(ref, record, { merge:true }));
+      }
     }
 
 
-    /* Save attendance */
+    /*
+     * Nothing changed at all — skip the network call entirely.
+     */
 
-    for(
-      const [attendanceId, record]
-      of Object.entries(data.attendance || {})
-    ){
-
-      await fb.setDoc(
-        fb.doc(
-          attendanceCollection,
-          attendanceId
-        ),
-        record,
-        {
-          merge:true
-        }
-      );
-
+    if(ops.length === 0){
+      console.log("Attendo persist(): no changes to save, skipped network call.");
+      return;
     }
+
+    await _commitInChunks(fb, ops);
 
 
     /*
@@ -908,7 +887,7 @@ async function persist(data){
 
 
     console.log(
-      "Attendo data saved to Firestore."
+      `Attendo data saved to Firestore (${ops.length} change${ops.length===1?'':'s'} in 1 batch).`
     );
 
   }
