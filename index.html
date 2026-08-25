@@ -849,16 +849,18 @@ async function persist(data){
        ATTENDANCE
     ================================================================= */
 
+    /*
+     * Attendance history has no "delete" feature anywhere in the app —
+     * records should only ever be added or updated. Deleting a record
+     * just because it's momentarily absent from the in-memory copy
+     * (e.g. after a reload, or a second tab/device saving first) was
+     * silently wiping older history entries. So attendance is upsert-only.
+     */
+
     const attendanceCollection = fb.collection(fb.db, 'organizations', organizationId, 'attendance');
     const prevAttendance = prev.attendance || {};
     const nextAttendance = data.attendance || {};
 
-    for(const id of Object.keys(prevAttendance)){
-      if(!(id in nextAttendance)){
-        const ref = fb.doc(attendanceCollection, id);
-        ops.push(batch => batch.delete(ref));
-      }
-    }
     for(const [id, record] of Object.entries(nextAttendance)){
       if(!_recEqual(record, prevAttendance[id])){
         const ref = fb.doc(attendanceCollection, id);
