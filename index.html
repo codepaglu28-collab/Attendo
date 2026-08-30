@@ -651,6 +651,65 @@ function getOrganizationId(){
   return state.user?.organizationId || `ORG_${window.attendoFirebase.auth.currentUser?.uid}`;
 }
 
+/*
+ * ----------------------------------------------------------------------------
+ * Wipes every piece of in-memory, session-scoped state — not just
+ * state.user/state.data, but every cache introduced for on-demand
+ * Firestore queries (Marks, History, student profiles). Those caches
+ * key themselves by things like a date range, not by account, so if
+ * they aren't cleared on logout, a second account signing in on the
+ * same tab can end up displaying the FIRST account's cached records
+ * (matched against the second account's different student/class list —
+ * which is what "Unknown Student" rows are a symptom of). This is a
+ * client-side memory issue, not a Firestore security hole: the data
+ * itself was never actually shared on the server.
+ * ----------------------------------------------------------------------------
+ */
+function resetSessionState(){
+  state.user = null;
+  state.data = null;
+  state._firestoreCache = null;
+  state._pendingMarkDeletes = [];
+  state._marksCache = null;
+  state._studentMarksCache = null;
+  state._histCache = null;
+  state._studentHistoryCache = null;
+  state._studentProfile = null;
+  state.activeClass = null;
+  state.quickIdx = 0;
+  state.quickStatus = {};
+  state.rcStatus = {};
+  state.rcDirty = false;
+  state._rcKey = null;
+  state._qrKey = null;
+  state._stuSearch = '';
+  state._stuClassFilter = 'All';
+  state._stuDeptFilter = 'All';
+  state._markClassFilter = 'All';
+  state._markSubjectFilter = 'All';
+  state._markStudentFilter = 'All';
+  state._markMin = '';
+  state._markMax = '';
+  state._markFrom = null;
+  state._markTo = null;
+  state._histClass = 'All';
+  state._histStatus = 'All';
+  state._histFrom = null;
+  state._histTo = null;
+  state.navStack = [];
+}
+
+async function logoutUser(){
+  try{
+    await window.attendoFirebase.signOut(window.attendoFirebase.auth);
+  } catch(error){
+    console.error('Sign out failed:', error);
+  }
+  resetSessionState();
+  state.stage = 'landing';
+  render();
+}
+
 
 /* --------------------------------------------------------------------------
    LOAD DATA FROM FIRESTORE
@@ -1387,8 +1446,7 @@ function boot(){
        */
       if(!user){
 
-        state.user = null;
-        state.data = null;
+        resetSessionState();
         state.stage = 'landing';
         state.view = 'dashboard';
 
@@ -1716,6 +1774,7 @@ function attachAuthEvents(){
         try {
           const credential = await fb.signInWithPopup(fb.auth, fb.googleProvider);
           const user = credential.user;
+          resetSessionState(); // clear any stale cached data from a previous account in this tab
           const organizationId = `ORG_${user.uid}`;
 
           const userRef = fb.doc(fb.db, 'organizations', organizationId, 'users', user.uid);
@@ -1865,6 +1924,8 @@ function attachAuthEvents(){
     return;
   }
 
+  resetSessionState(); // clear any stale cached data from a previous account in this tab
+
   const credential =
     await window.attendoFirebase.createUserWithEmailAndPassword(
       window.attendoFirebase.auth,
@@ -1966,6 +2027,8 @@ function attachAuthEvents(){
           );
 
         const user = credential.user;
+
+        resetSessionState(); // clear any stale cached data from a previous account in this tab
 
         /*
          * For now we find the organization using the same
@@ -2197,7 +2260,7 @@ function attachShellEvents(){
     state.view = v; state.rcDirty=false;
     render();
   });
-  document.querySelectorAll('[data-action="logout"]').forEach(b=>b.onclick=()=>{ state.navStack=[]; state.stage='landing'; state.user=null; render(); });
+  document.querySelectorAll('[data-action="logout"]').forEach(b=>b.onclick=()=> logoutUser());
   const drawer = document.getElementById('mobile-drawer'), overlay = document.getElementById('drawer-overlay');
   document.querySelectorAll('[data-action="open-drawer"]').forEach(b=>b.onclick=()=>{ drawer.classList.add('open'); overlay.classList.add('open'); });
   document.querySelectorAll('[data-action="close-drawer"]').forEach(b=>b.onclick=()=>{ drawer.classList.remove('open'); overlay.classList.remove('open'); });
