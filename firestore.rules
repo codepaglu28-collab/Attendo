@@ -1,0 +1,28 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Every organization is deterministically named ORG_<the owner's Firebase
+    // Auth uid> (see getOrganizationId() in index.html). That means a signed-in
+    // user should only ever be able to read/write the one organization whose
+    // ID matches their own uid — never anyone else's data.
+    match /organizations/{orgId} {
+      allow read, write: if request.auth != null
+                          && orgId == 'ORG_' + request.auth.uid;
+
+      // Departments, students, classes, enrollments, attendanceSessions,
+      // attendanceRecords, marks, users, and the legacy "attendance"
+      // collection (kept temporarily by the one-time structure migration)
+      // — every subcollection inherits the same rule: only the
+      // organization's own owner can touch it. New subcollections added
+      // later are covered automatically by this wildcard match.
+      match /{subcollection}/{docId} {
+        allow read, write: if request.auth != null
+                            && orgId == 'ORG_' + request.auth.uid;
+      }
+    }
+
+    // Everything else is denied by default.
+  }
+}

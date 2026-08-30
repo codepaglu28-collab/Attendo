@@ -298,26 +298,48 @@ select.input{width:auto;}
 .rc-savebar .status-txt{font-size:13.5px; color:var(--slate);}
 
 /* ============================= QUICK ROLL CALL ============================= */
-.qr-overlay{position:fixed; inset:0; z-index:500; display:flex; flex-direction:column; background:linear-gradient(160deg,var(--navy),#0F2452);}
-.qr-top{display:flex; align-items:center; justify-content:space-between; padding:24px;}
-.qr-exit{display:flex; align-items:center; gap:8px; font-size:13.5px; font-weight:600; color:rgba(255,255,255,.7); background:none;}
-.qr-exit:hover{color:#fff;}
-.qr-classname{font-size:13.5px; font-weight:700; color:rgba(255,255,255,.7);}
-.qr-body{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px;}
+.qr-overlay{position:fixed; inset:0; z-index:500; display:flex; flex-direction:column; background:linear-gradient(160deg,var(--navy),#0F2452); overflow-y:auto;}
+.qr-top{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:24px; flex-shrink:0;}
+.qr-exit{display:flex; align-items:center; gap:8px; font-size:13.5px; font-weight:700; color:#fff; background:rgba(255,255,255,.1); padding:9px 16px 9px 12px; border-radius:999px; flex-shrink:0;}
+.qr-exit:hover{background:rgba(255,255,255,.18);}
+.qr-classname{font-size:13.5px; font-weight:700; color:rgba(255,255,255,.7); text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;}
+.qr-body{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; min-height:0;}
 .qr-progtxt{color:rgba(255,255,255,.5); font-size:13.5px; font-weight:700; margin-bottom:8px;}
-.qr-progbar{width:260px; height:6px; border-radius:999px; background:rgba(255,255,255,.1); overflow:hidden; margin-bottom:40px;}
+.qr-progbar{width:260px; max-width:100%; height:6px; border-radius:999px; background:rgba(255,255,255,.1); overflow:hidden; margin-bottom:40px;}
 .qr-progbar-fill{height:100%; border-radius:999px; background:linear-gradient(90deg,var(--blue),var(--mint)); transition:width .25s;}
-.qr-avatar{width:224px; height:224px; border-radius:999px; display:grid; place-items:center; font-size:48px; font-weight:800; color:#fff; background:rgba(255,255,255,.06); border:2px solid rgba(255,255,255,.15); margin-bottom:24px; position:relative;}
-.qr-status-pill{position:absolute; bottom:-8px; border-radius:999px; padding:6px 16px; font-size:13.5px; font-weight:800; color:#fff;}
-.qr-name{font-size:26px; font-weight:800; color:#fff; margin-bottom:4px;}
-.qr-sub{color:rgba(255,255,255,.5); font-size:13.5px; margin-bottom:40px;}
-.qr-btns{display:flex; gap:16px;}
-.qr-btn{width:96px; height:96px; border-radius:20px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; font-weight:800; color:#fff;}
+.qr-avatar{width:224px; height:224px; border-radius:999px; display:grid; place-items:center; font-size:48px; font-weight:800; color:#fff; background:rgba(255,255,255,.06); border:2px solid rgba(255,255,255,.15); margin-bottom:24px; position:relative; flex-shrink:0;}
+.qr-status-pill{position:absolute; bottom:-8px; left:50%; transform:translateX(-50%); white-space:nowrap; border-radius:999px; padding:6px 16px; font-size:13.5px; font-weight:800; color:#fff;}
+.qr-name{font-size:26px; font-weight:800; color:#fff; margin-bottom:4px; text-align:center; padding:0 12px;}
+.qr-sub{color:rgba(255,255,255,.5); font-size:13.5px; margin-bottom:40px; text-align:center;}
+.qr-btns{display:flex; gap:16px; justify-content:center; flex-wrap:wrap; max-width:100%;}
+.qr-btn{width:96px; height:96px; border-radius:20px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; font-weight:800; color:#fff; flex-shrink:0;}
 .qr-btn:active{transform:scale(.95);}
-.qr-hint{display:flex; align-items:center; gap:22px; margin-top:40px; color:rgba(255,255,255,.5); font-size:12px;}
-.qr-hint button{display:flex; align-items:center; gap:4px; background:none; color:inherit;}
+.qr-hint{display:flex; align-items:center; gap:22px; margin-top:40px; color:rgba(255,255,255,.5); font-size:12px; flex-wrap:wrap; justify-content:center;}
+.qr-hint button{display:flex; align-items:center; gap:4px; background:none; color:inherit; padding:6px; }
 .qr-hint button:hover{color:#fff;}
-.qr-bottom{padding:24px; display:flex; justify-content:center;}
+.qr-hint .qr-kbd-only{display:inline;}
+.qr-bottom{padding:24px; display:flex; justify-content:center; flex-shrink:0;}
+
+@media (max-width: 480px){
+  /*
+   * At 3 x 96px + 2 x 16px gaps, the status buttons alone need 320px —
+   * wider than the available space on almost any phone once the 24px
+   * side padding is subtracted, which was pushing/clipping the third
+   * button off-screen. Scaling everything down here keeps the whole
+   * card (avatar, name, buttons, hints) on-screen without overflow.
+   */
+  .qr-top{padding:16px;}
+  .qr-body{padding:16px 16px 8px;}
+  .qr-avatar{width:150px; height:150px; font-size:34px; margin-bottom:18px;}
+  .qr-name{font-size:21px;}
+  .qr-sub{margin-bottom:26px;}
+  .qr-progbar{margin-bottom:26px;}
+  .qr-btns{gap:10px;}
+  .qr-btn{width:84px; height:84px; border-radius:16px;}
+  .qr-hint{margin-top:26px; gap:14px; font-size:11.5px;}
+  .qr-hint .qr-kbd-only{display:none;}
+  .qr-bottom{padding:16px;}
+}
 
 /* ============================= TABLES ============================= */
 table{width:100%; border-collapse:collapse; font-size:13.5px;}
@@ -363,6 +385,7 @@ tbody tr.clickable:hover{background:#FAFBFE;}
 .statbox .l{font-size:11.5px; font-weight:600; color:var(--slate); margin-top:4px;}
 .hist-row{display:flex; align-items:center; justify-content:space-between; font-size:13.5px; padding:10px 0; border-top:1px solid var(--border);}
 .hist-row:first-child{border-top:none;}
+.mk-analysis-grid{display:grid; grid-template-columns:1fr 1fr; gap:24px;}
 
 /* ============================= CLASSES ============================= */
 .class-card{padding:20px;}
@@ -395,7 +418,7 @@ tbody tr.clickable:hover{background:#FAFBFE;}
   .hero-cta{justify-content:center; flex-wrap:wrap;}
   .hero-trust{justify-content:center; flex-wrap:wrap; gap:14px 20px;}
   .grid-4{grid-template-columns:repeat(2,1fr);}
-  .grid-3, .grid-2, .dash-charts-grid{grid-template-columns:1fr;}
+  .grid-3, .grid-2, .dash-charts-grid, .mk-analysis-grid{grid-template-columns:1fr;}
   .security-card{grid-template-columns:1fr;}
   .auth-side{display:none;}
   /*
@@ -470,7 +493,9 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     deleteDoc,
     writeBatch,
     query,
-    where
+    where,
+    orderBy,
+    limit
   } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -507,7 +532,9 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     deleteDoc,
     writeBatch,
     query,
-    where
+    where,
+    orderBy,
+    limit
   };
   
 
@@ -579,6 +606,43 @@ const prettyDate = iso => new Date(iso+"T00:00:00").toLocaleDateString("en-IN",{
 const classNameOf = classId => { const c = (state.data.classes||[]).find(c=>c.id===classId); return c ? c.name : (classId || '—'); };
 function initials(name){ return name.split(" ").map(x=>x[0]).join("").slice(0,2).toUpperCase(); }
 
+/*
+ * ----------------------------------------------------------------------------
+ * ENROLLMENTS — students <-> classes is many-to-many (a student attends
+ * several subjects/classes), so class membership is NOT a field on the
+ * student document. It's a lightweight link collection instead, keeping
+ * exactly one permanent record per student no matter how many classes,
+ * departments, or years they're enrolled across.
+ * ----------------------------------------------------------------------------
+ */
+function rosterFor(classId){
+  const enrolledIds = new Set((state.data.enrollments||[]).filter(e=>e.classId===classId).map(e=>e.studentId));
+  return (state.data.students||[]).filter(s=>enrolledIds.has(s.id));
+}
+function classesForStudent(studentId){
+  const classIds = new Set((state.data.enrollments||[]).filter(e=>e.studentId===studentId).map(e=>e.classId));
+  return (state.data.classes||[]).filter(c=>classIds.has(c.id));
+}
+function deptNameOf(departmentId){
+  const d = (state.data.departments||[]).find(d=>d.id===departmentId);
+  return d ? d.name : '';
+}
+
+/*
+ * Excel auto-opens CSV files and, for any cell that looks like a date,
+ * silently converts it into a real date value with Excel's default
+ * (narrow) column width — which is what was producing "########" for
+ * the Date column, since the actual text was too long to fit. Wrapping
+ * the value as ="..." forces Excel to treat it as literal text no
+ * matter which format it's opened with, so the date always displays
+ * exactly as written and the column just auto-widens instead of
+ * hashing out. (A leading apostrophe only works when typed directly
+ * into Excel, not when Excel is auto-parsing an opened CSV file.)
+ */
+function csvDateCell(iso){
+  return `="${prettyDate(iso).replace(/"/g,'""')}"`;
+}
+
 /* ============================================================================
    FIRESTORE PERSISTENCE
 ============================================================================ */
@@ -622,11 +686,16 @@ async function loadData(){
       return {
         org:{
           name:"My Organization",
-          type:"School"
+          type:"School",
+          lateThresholdMin: 10,
+          minAttendancePct: 75
         },
+        departments:[],
         students:[],
         classes:[],
-        attendance:{}
+        enrollments:[],
+        attendance:{},
+        marks:[]
       };
     }
 
@@ -634,7 +703,21 @@ async function loadData(){
 
 
     /* ================================================================
+       DEPARTMENTS
+       Bounded (a handful per organization) — always safe to load in full.
+    ================================================================= */
+
+    const departmentsSnap = await fb.getDocs(
+      fb.collection(fb.db, 'organizations', organizationId, 'departments')
+    );
+    const departments = [];
+    departmentsSnap.forEach(docSnap => departments.push({ id: docSnap.id, ...docSnap.data() }));
+
+
+    /* ================================================================
        STUDENTS
+       One permanent record per student — bounded by enrollment size
+       (thousands, not growing daily), so a full load is fine.
     ================================================================= */
 
     const studentsSnap = await fb.getDocs(
@@ -684,23 +767,91 @@ async function loadData(){
 
 
     /* ================================================================
-       ATTENDANCE
+       ENROLLMENTS
+       Many-to-many student <-> class links. Bounded by
+       (students x avg subjects per student), not by days elapsed, so
+       — like students/classes — it's safe to load in full and doesn't
+       need date-scoping the way attendance does.
     ================================================================= */
 
-    const attendanceSnap = await fb.getDocs(
-      fb.collection(
-        fb.db,
-        'organizations',
-        organizationId,
-        'attendance'
+    const enrollmentsSnap = await fb.getDocs(
+      fb.collection(fb.db, 'organizations', organizationId, 'enrollments')
+    );
+    const enrollments = [];
+    enrollmentsSnap.forEach(docSnap => enrollments.push({ id: docSnap.id, ...docSnap.data() }));
+
+
+    /* ================================================================
+       ATTENDANCE SESSIONS
+       ------------------------------------------------------------
+       This used to be an unconditional getDocs() over the ENTIRE
+       attendance history — fine for a small school, but at college
+       scale (~18,000 attendance events/day) that collection grows by
+       hundreds of session documents every single day, forever. Loading
+       all of it on every login would make load times and Firestore
+       read costs grow without bound as the semester goes on.
+       Fix: only pull a recent rolling window (14 days) here, which is
+       all the Dashboard needs (today + this-week trend). Anything
+       older is fetched on demand:
+         - the History page queries its own explicit date range
+         - a student's full multi-year history is read from
+           attendanceRecords (a per-student-queryable fan-out — see
+           saveAttendanceSession()) when their profile is opened
+       ------------------------------------------------------------
+    ================================================================= */
+
+    const windowStart = new Date();
+    windowStart.setDate(windowStart.getDate() - 13);
+    const windowStartStr = windowStart.toISOString().slice(0,10);
+
+    // Marks accumulate much slower than attendance (weekly exams, not
+    // daily), so a longer default window (~1 term) is safe here and
+    // more useful for the Marks page's analysis than 14 days would be.
+    const marksWindowStart = new Date();
+    marksWindowStart.setDate(marksWindowStart.getDate() - 89);
+    const marksWindowStartStr = marksWindowStart.toISOString().slice(0,10);
+
+    const sessionsSnap = await fb.getDocs(
+      fb.query(
+        fb.collection(fb.db, 'organizations', organizationId, 'attendanceSessions'),
+        fb.where('date', '>=', windowStartStr)
       )
     );
 
     const attendance = {};
+    sessionsSnap.forEach(docSnap => { attendance[docSnap.id] = docSnap.data(); });
 
-    attendanceSnap.forEach(docSnap => {
 
-      attendance[docSnap.id] = docSnap.data();
+    /* ================================================================
+       MARKS
+       ------------------------------------------------------------
+       Same reasoning as attendanceSessions: weekly exams across ~5
+       subjects for 3,000 students is roughly 540,000 mark records a
+       year, and — since a college keeps running indefinitely rather
+       than resetting — that keeps accumulating (1.5-2.7M+ within a
+       few years). Bulk-loading all of it on every login would
+       eventually hit the same problem attendance had. So: only a
+       recent rolling window loads here; the Marks page fetches other
+       date ranges on demand, and a student's full marks history
+       (their profile's "Deep Analysis") is fetched on demand too.
+       ------------------------------------------------------------
+    ================================================================= */
+
+    const marksSnap = await fb.getDocs(
+      fb.query(
+        fb.collection(fb.db, 'organizations', organizationId, 'marks'),
+        fb.where('date', '>=', marksWindowStartStr)
+      )
+    );
+
+    const marks = [];
+
+    marksSnap.forEach(docSnap => {
+
+      marks.push({
+        id: docSnap.id,
+        ...docSnap.data()
+      });
 
     });
 
@@ -708,19 +859,32 @@ async function loadData(){
     const data = {
       org:{
         name: org.name || "My Organization",
-        type: org.type || "School"
+        type: org.type || "School",
+        lateThresholdMin: org.lateThresholdMin ?? 10,
+        minAttendancePct: org.minAttendancePct ?? 75
       },
+
+      departments,
 
       students,
 
       classes,
 
-      attendance
+      enrollments,
+
+      attendance,
+
+      marks
     };
 
 
     /*
      * Keep a copy so persist() can detect what changed.
+     * (Note: attendanceSessions/attendanceRecords are intentionally
+     * NOT part of this diff-based persist() cache — they're written
+     * directly by saveAttendanceSession() instead, since a rolling
+     * 14-day window can't be used as a complete "previous state" to
+     * diff a full save against.)
      */
 
     state._firestoreCache =
@@ -801,7 +965,7 @@ async function persist(data){
     }
 
     const organizationId = getOrganizationId();
-    const prev = state._firestoreCache || { students:[], classes:[], attendance:{}, org:{} };
+    const prev = state._firestoreCache || { students:[], classes:[], departments:[], enrollments:[], attendance:{}, marks:[], org:{} };
 
     const ops = [];
 
@@ -812,12 +976,37 @@ async function persist(data){
     const newOrg = {
       name: data.org?.name || "My Organization",
       type: data.org?.type || "School",
+      lateThresholdMin: data.org?.lateThresholdMin ?? 10,
+      minAttendancePct: data.org?.minAttendancePct ?? 75,
       ownerId: user.uid
     };
 
     if(!_recEqual(newOrg, { ...prev.org, ownerId: user.uid })){
       const orgRef = fb.doc(fb.db, 'organizations', organizationId);
       ops.push(batch => batch.set(orgRef, newOrg, { merge:true }));
+    }
+
+
+    /* ================================================================
+       DEPARTMENTS
+    ================================================================= */
+
+    const deptCollection = fb.collection(fb.db, 'organizations', organizationId, 'departments');
+    const prevDepts = new Map((prev.departments || []).map(d => [d.id, d]));
+    const nextDepts = new Map((data.departments || []).map(d => [d.id, d]));
+
+    for(const id of prevDepts.keys()){
+      if(!nextDepts.has(id)){
+        const ref = fb.doc(deptCollection, id);
+        ops.push(batch => batch.delete(ref));
+      }
+    }
+    for(const [id, dept] of nextDepts){
+      if(!_recEqual(dept, prevDepts.get(id))){
+        const { id: _drop, ...deptData } = dept;
+        const ref = fb.doc(deptCollection, id);
+        ops.push(batch => batch.set(ref, deptData, { merge:true }));
+      }
     }
 
 
@@ -868,26 +1057,75 @@ async function persist(data){
 
 
     /* ================================================================
+       ENROLLMENTS (student <-> class links — the many-to-many fix so a
+       student is never duplicated per subject/class; see rosterFor()
+       and classesForStudent())
+    ================================================================= */
+
+    const enrollCollection = fb.collection(fb.db, 'organizations', organizationId, 'enrollments');
+    const prevEnroll = new Map((prev.enrollments || []).map(e => [e.id, e]));
+    const nextEnroll = new Map((data.enrollments || []).map(e => [e.id, e]));
+
+    for(const id of prevEnroll.keys()){
+      if(!nextEnroll.has(id)){
+        const ref = fb.doc(enrollCollection, id);
+        ops.push(batch => batch.delete(ref));
+      }
+    }
+    for(const [id, enr] of nextEnroll){
+      if(!_recEqual(enr, prevEnroll.get(id))){
+        const { id: _drop, ...enrData } = enr;
+        const ref = fb.doc(enrollCollection, id);
+        ops.push(batch => batch.set(ref, enrData, { merge:true }));
+      }
+    }
+
+
+    /* ================================================================
        ATTENDANCE
+       ------------------------------------------------------------
+       No longer handled here. At college scale (~18,000 attendance
+       events/day) folding attendance into this same whole-app diff
+       would mean every roll-call save re-diffs a large in-memory
+       blob and this function's `prev` cache (a bounded 14-day
+       window) can't represent "all history" to diff against safely.
+       Roll Call / Quick Roll Call now call saveAttendanceSession()
+       directly instead, which writes only that one class-session
+       (plus its per-student index docs) in its own dedicated batch.
+       ------------------------------------------------------------
+    ================================================================= */
+
+
+    /* ================================================================
+       MARKS
     ================================================================= */
 
     /*
-     * Attendance history has no "delete" feature anywhere in the app —
-     * records should only ever be added or updated. Deleting a record
-     * just because it's momentarily absent from the in-memory copy
-     * (e.g. after a reload, or a second tab/device saving first) was
-     * silently wiping older history entries. So attendance is upsert-only.
+     * Marks are now loaded as a rolling window (see loadData()), not
+     * the complete history — so absence-from-the-loaded-window can no
+     * longer be trusted to mean "the user deleted it" the way it could
+     * when everything was always fully loaded. A mark from outside the
+     * window is just as "absent" from data.marks as a genuinely deleted
+     * one, and diffing against prev would silently fail to delete
+     * anything the user removes that happens to be outside that window.
+     * So deletions are now tracked explicitly (see deleteMark()) instead
+     * of inferred from absence; this section only ever upserts.
      */
 
-    const attendanceCollection = fb.collection(fb.db, 'organizations', organizationId, 'attendance');
-    const prevAttendance = prev.attendance || {};
-    const nextAttendance = data.attendance || {};
+    const marksCollection = fb.collection(fb.db, 'organizations', organizationId, 'marks');
+    const prevMarks = new Map((prev.marks || []).map(m => [m.id, m]));
+    const nextMarks = new Map((data.marks || []).map(m => [m.id, m]));
 
-    for(const [id, record] of Object.entries(nextAttendance)){
-      if(!_recEqual(record, prevAttendance[id])){
-        const ref = fb.doc(attendanceCollection, id);
-        ops.push(batch => batch.set(ref, record, { merge:true }));
+    for(const [id, mark] of nextMarks){
+      if(!_recEqual(mark, prevMarks.get(id))){
+        const { id: _drop, ...markData } = mark;
+        const ref = fb.doc(marksCollection, id);
+        ops.push(batch => batch.set(ref, markData, { merge:true }));
       }
+    }
+    for(const id of state._pendingMarkDeletes || []){
+      const ref = fb.doc(marksCollection, id);
+      ops.push(batch => batch.delete(ref));
     }
 
 
@@ -902,6 +1140,7 @@ async function persist(data){
 
     await _commitInChunks(fb, ops);
 
+    state._pendingMarkDeletes = [];
 
     /*
      * Update local Firestore snapshot.
@@ -930,6 +1169,94 @@ async function persist(data){
     throw error;
   }
 }
+
+/* --------------------------------------------------------------------------
+   SAVE ATTENDANCE SESSION (dedicated, high-frequency path)
+   ------------------------------------------------------------------------
+   Roll Call and Quick Roll Call call this directly instead of going
+   through persist(). Attendance is by far the highest-volume write in
+   the app (up to ~18,000 marks/day across a college), so it gets its
+   own lean save path rather than being folded into the general
+   students/classes/marks diff-and-batch flow:
+
+     1. ONE session document — organizations/{org}/attendanceSessions/{date}|{classId}
+        holding the whole class roster's statuses for that day (this is
+        what Roll Call/Dashboard read — cheap: one write per class per day,
+        not one per student).
+
+     2. A per-student fan-out — organizations/{org}/attendanceRecords/{date}|{classId}|{studentId}
+        one tiny doc per student per session. This is where the real
+        18,000/day volume lands, but each doc is only ever touched via
+        an indexed query (by studentId, or by date), never a full scan —
+        that's what makes a student's multi-year history, or "today's
+        attendance across the college", queryable without ever loading
+        the whole collection.
+
+   Both are written in a single batch, so a save is still one atomic,
+   one-round-trip operation from the UI's point of view.
+--------------------------------------------------------------------------- */
+async function saveAttendanceSession(cls, date, statusMap){
+  const fb = window.attendoFirebase;
+  const user = fb.auth.currentUser;
+  if(!user) throw new Error("Cannot save attendance: no authenticated user.");
+
+  const organizationId = getOrganizationId();
+  const sessionId = `${date}|${cls.id}`;
+
+  const sessionData = {
+    classId: cls.id,
+    date,
+    subject: cls.subject,
+    teacher: cls.teacher,
+    departmentId: cls.departmentId || null,
+    records: { ...statusMap }
+  };
+
+  const sessionRef = fb.doc(fb.db, 'organizations', organizationId, 'attendanceSessions', sessionId);
+
+  const ops = [batch => batch.set(sessionRef, sessionData, { merge:true })];
+
+  const recordsCollection = fb.collection(fb.db, 'organizations', organizationId, 'attendanceRecords');
+  for(const [studentId, status] of Object.entries(statusMap)){
+    const recordId = `${date}|${cls.id}|${studentId}`;
+    const ref = fb.doc(recordsCollection, recordId);
+    ops.push(batch => batch.set(ref, {
+      studentId, classId: cls.id, departmentId: cls.departmentId || null,
+      subject: cls.subject, date, status
+    }, { merge:true }));
+  }
+
+  await _commitInChunks(fb, ops);
+
+  // Keep the in-memory rolling window in sync so the Dashboard/Roll Call
+  // reflect the save immediately without a re-fetch.
+  if(state.data){
+    state.data.attendance[sessionId] = sessionData;
+    if(state._firestoreCache) state._firestoreCache.attendance[sessionId] = sessionData;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   FETCH A STUDENT'S FULL ATTENDANCE HISTORY (on demand)
+   ------------------------------------------------------------------------
+   Reads attendanceRecords filtered to one studentId — scalable
+   regardless of how large the college-wide collection grows, since it's
+   always an indexed, scoped query and never a full-collection read.
+--------------------------------------------------------------------------- */
+async function fetchStudentAttendanceHistory(studentId){
+  const fb = window.attendoFirebase;
+  const organizationId = getOrganizationId();
+  const q = fb.query(
+    fb.collection(fb.db, 'organizations', organizationId, 'attendanceRecords'),
+    fb.where('studentId', '==', studentId)
+  );
+  const snap = await fb.getDocs(q);
+  const records = [];
+  snap.forEach(docSnap => records.push(docSnap.data()));
+  records.sort((a,b)=> b.date.localeCompare(a.date));
+  return records;
+}
+
 /* ============================================================================
    GLOBAL STATE
 ============================================================================ */
@@ -1133,12 +1460,17 @@ function boot(){
 
           org:{
             name: 'My Organization',
-            type: 'School'
+            type: 'School',
+            lateThresholdMin: 10,
+            minAttendancePct: 75
           },
 
           students:[],
           classes:[],
-          attendance:{}
+          departments:[],
+          enrollments:[],
+          attendance:{},
+          marks:[]
 
         };
 
@@ -1444,10 +1776,13 @@ function attachAuthEvents(){
 
           if(!state.data){
             state.data = {
-              org:{ name:"My Organization", type:"School" },
+              org:{ name:"My Organization", type:"School", lateThresholdMin:10, minAttendancePct:75 },
               students:[],
               classes:[],
-              attendance:{}
+              departments:[],
+              enrollments:[],
+              attendance:{},
+              marks:[]
             };
           }
 
@@ -1588,11 +1923,16 @@ function attachAuthEvents(){
   state.data = {
     org:{
       name: orgName,
-      type: orgType
+      type: orgType,
+      lateThresholdMin: 10,
+      minAttendancePct: 75
     },
     students:[],
     classes:[],
-    attendance:{}
+    departments:[],
+    enrollments:[],
+    attendance:{},
+    marks:[]
   };
 
   state.stage = 'app';
@@ -1715,11 +2055,16 @@ function attachAuthEvents(){
           state.data = {
             org:{
               name:"My Organization",
-              type:"School"
+              type:"School",
+              lateThresholdMin: 10,
+              minAttendancePct: 75
             },
             students:[],
             classes:[],
-            attendance:{}
+            departments:[],
+            enrollments:[],
+            attendance:{},
+            marks:[]
           };
 
         }
@@ -1789,6 +2134,7 @@ const NAV_ITEMS = [
   {id:'rollcall', label:'Take Attendance', icon:'clipboard'},
   {id:'students', label:'Students', icon:'users'},
   {id:'classes', label:'Timetable', icon:'school'},
+  {id:'marks', label:'Marks', icon:'bar'},
   {id:'history', label:'History', icon:'calendar'},
   {id:'settings', label:'Settings', icon:'settings'},
 ];
@@ -1888,7 +2234,7 @@ function attachGlobalSearch(){
       html += `<div class="gsr-sec-label">Students</div>`;
       html += students.map(s=>`<div class="gsr-item" data-type="student" data-id="${s.id}">
         <div class="s-av" style="width:28px;height:28px;font-size:10px;">${initials(s.name)}</div>
-        <div><div class="gsr-name">${s.name}</div><div class="gsr-sub">Roll #${s.roll} · ${classNameOf(s.classId)}${s.section}</div></div>
+        <div><div class="gsr-name">${s.name}</div><div class="gsr-sub">Roll #${s.roll} · ${classesForStudent(s.id).map(c=>`${c.name}${c.section}`).join(', ')||'No classes'}</div></div>
       </div>`).join('');
     }
     if(classes.length){
@@ -1930,6 +2276,7 @@ function renderView(){
   if(state.view==='rollcall') return renderRollCall(root);
   if(state.view==='students') return renderStudents(root);
   if(state.view==='classes') return renderClasses(root);
+  if(state.view==='marks') return renderMarks(root);
   if(state.view==='history') return renderHistory(root);
   if(state.view==='settings') return renderSettings(root);
 }
@@ -2013,7 +2360,7 @@ function renderDashboard(root){
         </div>
       `: `<div class="grid-2">
         ${todaysClasses.map(c=>{
-          const roster = data.students.filter(s=>s.classId===c.id);
+          const roster = rosterFor(c.id);
           const done = !!data.attendance[`${today}|${c.id}`];
           return `<div class="card card-hover class-row">
             <div>
@@ -2057,7 +2404,7 @@ function renderRollCall(root){
     return;
   }
   const cls = classes.find(c=>c.id===state.activeClass) || classes[0];
-  const roster = data.students.filter(s=>s.classId===cls.id).sort((a,b)=>a.roll-b.roll);
+  const roster = rosterFor(cls.id).sort((a,b)=>a.roll-b.roll);
   const date = todayStr(), key = `${date}|${cls.id}`;
   const existing = (data.attendance[key] && data.attendance[key].records) || {};
   if(!state._rcKey || state._rcKey!==key){ state.rcStatus = {...existing}; state.rcDirty=false; state._rcKey=key; }
@@ -2145,8 +2492,8 @@ function renderRollCall(root){
     state.view = b.getAttribute('data-view'); render();
   });
   document.getElementById('rc-save').onclick = async ()=>{
-    data.attendance[key] = { classId:cls.id, date, subject:cls.subject, teacher:cls.teacher, records:{...state.rcStatus} };
-    await persist(data); state.rcDirty=false;
+    await saveAttendanceSession(cls, date, state.rcStatus);
+    state.rcDirty=false;
     showToast(`Attendance Saved — ${counts.Present} Present, ${counts.Absent} Absent, ${counts.Late} Late`);
     renderRollCall(root);
   };
@@ -2158,14 +2505,14 @@ function renderRollCall(root){
 function renderQuickRoll(){
   const data = state.data;
   const classes = data.classes || [];
-  if(classes.length===0) return `<div class="qr-overlay"><div class="qr-body"><div style="color:#fff">No timetable set up yet.</div></div></div>`;
+  if(classes.length===0) return `<div class="qr-overlay"><div class="qr-top"><button class="qr-exit" data-action="qr-exit">${ic('arrowLeft')} Back</button></div><div class="qr-body"><div style="color:#fff;font-weight:600;">No timetable set up yet.</div><div style="color:rgba(255,255,255,.5);font-size:13.5px;margin-top:8px;">Add a class first to take attendance.</div></div></div>`;
   const cls = classes.find(c=>c.id===state.activeClass) || classes[0];
-  const roster = data.students.filter(s=>s.classId===cls.id).sort((a,b)=>a.roll-b.roll);
+  const roster = rosterFor(cls.id).sort((a,b)=>a.roll-b.roll);
   const date = todayStr(), key = `${date}|${cls.id}`;
   if(state._qrKey!==key){ state.quickStatus = {...((data.attendance[key]||{}).records||{})}; state.quickIdx=0; state._qrKey=key; }
   const idx = Math.min(state.quickIdx, roster.length-1);
   const current = roster[idx];
-  if(!current) return `<div class="qr-overlay"><div class="qr-body"><div style="color:#fff">No students in this class.</div></div></div>`;
+  if(!current) return `<div class="qr-overlay"><div class="qr-top"><button class="qr-exit" data-action="qr-exit">${ic('arrowLeft')} Back</button></div><div class="qr-body"><div style="color:#fff;font-weight:600;">No students in this class.</div><div style="color:rgba(255,255,255,.5);font-size:13.5px;margin-top:8px;">Add students to ${cls.name}${cls.section} first.</div></div></div>`;
   const status = state.quickStatus[current.id];
 
   return `<div class="qr-overlay">
@@ -2187,7 +2534,7 @@ function renderQuickRoll(){
       </div>
       <div class="qr-hint">
         <button data-action="qr-prev">${ic('chevLeft')} Prev (←)</button>
-        <span>Space = confirm</span>
+        <span class="qr-kbd-only">Space = confirm</span>
         <button data-action="qr-next">Next (→) ${ic('chevRight')}</button>
       </div>
     </div>
@@ -2197,9 +2544,11 @@ function renderQuickRoll(){
 function attachQuickRollEvents(){
   const data = state.data;
   const classes = data.classes || [];
-  if(classes.length===0) return;
+  const bindExit = ()=>{ const b=document.querySelector('[data-action="qr-exit"]'); if(b) b.onclick=()=>{ state.view='rollcall'; render(); }; };
+  if(classes.length===0){ bindExit(); return; }
   const cls = classes.find(c=>c.id===state.activeClass) || classes[0];
-  const roster = data.students.filter(s=>s.classId===cls.id).sort((a,b)=>a.roll-b.roll);
+  const roster = rosterFor(cls.id).sort((a,b)=>a.roll-b.roll);
+  if(roster.length===0){ bindExit(); return; }
   const mark = (status)=>{
     const idx = Math.min(state.quickIdx, roster.length-1); const cur = roster[idx];
     if(!cur) return;
@@ -2213,9 +2562,7 @@ function attachQuickRollEvents(){
   const exitBtn = document.querySelector('[data-action="qr-exit"]'); if(exitBtn) exitBtn.onclick=()=>{ state.view='rollcall'; render(); };
   const finishBtn = document.querySelector('[data-action="qr-finish"]');
   if(finishBtn) finishBtn.onclick = async ()=>{
-    const key = state._qrKey;
-    data.attendance[key] = { classId:cls.id, date:todayStr(), subject:cls.subject, teacher:cls.teacher, records:{...state.quickStatus} };
-    await persist(data);
+    await saveAttendanceSession(cls, todayStr(), state.quickStatus);
     const counts = STATUSES.reduce((a,s)=>{ a[s]=roster.filter(r=>state.quickStatus[r.id]===s).length; return a; },{});
     showToast(`Attendance Saved — ${counts.Present} Present, ${counts.Absent} Absent, ${counts.Late} Late`);
     state.view='dashboard'; render();
@@ -2238,16 +2585,17 @@ function attachQuickRollEvents(){
 function renderStudents(root){
   const data = state.data;
   if(state._studentProfile){ return renderStudentProfile(root); }
-  const search = state._stuSearch || '', classFilter = state._stuClassFilter || 'All';
+  const search = state._stuSearch || '', classFilter = state._stuClassFilter || 'All', deptFilter = state._stuDeptFilter || 'All';
   const filtered = data.students.filter(s=>{
-    if(classFilter!=='All' && s.classId!==classFilter) return false;
+    if(deptFilter!=='All' && s.departmentId!==deptFilter) return false;
+    if(classFilter!=='All' && !(state.data.enrollments||[]).some(e=>e.studentId===s.id && e.classId===classFilter)) return false;
     if(search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.id.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
   root.innerHTML = `
     <div class="page-head">
-      <div><h1>Students</h1><p>${data.students.length} students across ${(data.classes||[]).length} classes</p></div>
+      <div><h1>Students</h1><p>${data.students.length} students across ${(data.departments||[]).length} departments · ${(data.classes||[]).length} classes</p></div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-outline" id="stu-export">${ic('download')} Export</button>
         <button class="btn btn-primary" id="stu-add">${ic('plus')} Add Student</button>
@@ -2255,6 +2603,10 @@ function renderStudents(root){
     </div>
     <div class="filters-row">
       <div class="search-box">${ic('search').replace('<svg','<svg style="width:14px;height:14px;color:var(--slate)"')}<input id="stu-search" placeholder="Search by name or ID…" value="${search}"/></div>
+      <select id="stu-dept-filter" class="input">
+        <option value="All" ${deptFilter==='All'?'selected':''}>All Departments</option>
+        ${(data.departments||[]).map(d=>`<option value="${d.id}" ${deptFilter===d.id?'selected':''}>${d.name}</option>`).join('')}
+      </select>
       <select id="stu-class-filter" class="input">
         <option value="All" ${classFilter==='All'?'selected':''}>All Classes</option>
         ${(data.classes||[]).map(c=>`<option value="${c.id}" ${classFilter===c.id?'selected':''}>${c.name}${c.section}</option>`).join('')}
@@ -2262,16 +2614,18 @@ function renderStudents(root){
     </div>
     <div class="card table-wrap">
       <table>
-        <thead><tr><th>Student</th><th>Class</th><th>Email</th><th>Attendance</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Student</th><th>Department</th><th>Classes</th><th>Email</th><th title="Based on the last 14 days — open a student's profile for their full history">Attendance (14d)</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          ${filtered.length===0?`<tr><td colspan="6"><div class="empty"><div class="empty-ic">${ic('users').replace('<svg','<svg style="width:20px;height:20px;color:var(--slate)"')}</div><div class="empty-txt">No students match your filters.</div></div></td></tr>`:
+          ${filtered.length===0?`<tr><td colspan="7"><div class="empty"><div class="empty-ic">${ic('users').replace('<svg','<svg style="width:20px;height:20px;color:var(--slate)"')}</div><div class="empty-txt">No students match your filters.</div></div></td></tr>`:
           filtered.map(s=>{
             const pct = attendancePct(data, s.id);
+            const enrolled = classesForStudent(s.id);
             return `<tr class="clickable" data-action="open-profile" data-sid="${s.id}">
               <td><div class="tname"><div class="s-av" style="width:32px;height:32px;font-size:11px;">${initials(s.name)}</div><div><div class="n">${s.name}</div><div class="s">Roll #${s.roll} · ${s.id}</div></div></div></td>
-              <td>${classNameOf(s.classId)}${s.section}</td>
+              <td style="color:var(--slate)">${deptNameOf(s.departmentId)||'—'}</td>
+              <td style="color:var(--slate)">${enrolled.length?enrolled.map(c=>`${c.name}${c.section}`).join(', '):'—'}</td>
               <td style="color:var(--slate)">${s.email}</td>
-              <td style="font-weight:700;color:${pct<75?T.red:T.mintDeep}">${pct}%</td>
+              <td style="font-weight:700;color:${pct<(data.org.minAttendancePct??75)?T.red:T.mintDeep}">${pct}%</td>
               <td><span class="badge" style="background:var(--mint-soft);color:${T.mintDeep}">${s.status}</span></td>
               <td>
                 <div class="row-actions" onclick="event.stopPropagation()">
@@ -2288,9 +2642,10 @@ function renderStudents(root){
 
   document.getElementById('stu-search').oninput = (e)=>{ state._stuSearch=e.target.value; renderStudents(root); document.getElementById('stu-search').focus(); document.getElementById('stu-search').setSelectionRange(999,999); };
   document.getElementById('stu-class-filter').onchange = (e)=>{ state._stuClassFilter=e.target.value; renderStudents(root); };
+  document.getElementById('stu-dept-filter').onchange = (e)=>{ state._stuDeptFilter=e.target.value; renderStudents(root); };
   document.getElementById('stu-add').onclick = ()=> openStudentModal(null, classFilter!=='All' ? classFilter : null);
   document.getElementById('stu-export').onclick = ()=>{
-    const rows=[["Student ID","Roll","Name","Email","Class","Section","Status"], ...filtered.map(s=>[s.id,s.roll,s.name,s.email,classNameOf(s.classId),s.section,s.status])];
+    const rows=[["Student ID","Roll","Name","Email","Department","Classes","Status"], ...filtered.map(s=>[s.id,s.roll,s.name,s.email,deptNameOf(s.departmentId),classesForStudent(s.id).map(c=>`${c.name}${c.section}`).join('; '),s.status])];
     const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join(String.fromCharCode(10));
     const blob = new Blob([csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='students.csv'; a.click();
     showToast('Students exported to CSV');
@@ -2303,9 +2658,10 @@ function renderStudents(root){
 function openStudentModal(studentId, presetClassId){
   const data = state.data;
   const classes = data.classes || [];
+  const departments = data.departments || [];
   if(classes.length===0){ showToast('Add a class to your timetable first'); state.view='classes'; render(); return; }
   const student = studentId ? data.students.find(s=>s.id===studentId) : null;
-  const defaultClassId = student ? student.classId : (presetClassId && classes.some(c=>c.id===presetClassId) ? presetClassId : classes[0].id);
+  const enrolledClassIds = new Set(student ? classesForStudent(student.id).map(c=>c.id) : (presetClassId && classes.some(c=>c.id===presetClassId) ? [presetClassId] : []));
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `<div class="card modal">
@@ -2314,7 +2670,15 @@ function openStudentModal(studentId, presetClassId){
       <div class="field"><label>Full Name</label><input required name="name" class="input" value="${student?student.name:''}"/></div>
       <div class="modal-grid2">
         <div class="field"><label>Roll Number</label><input required type="number" name="roll" class="input" value="${student?student.roll:''}"/></div>
-        <div class="field"><label>Class</label><select name="classId" class="input" style="width:100%;">${classes.map(c=>`<option value="${c.id}" ${defaultClassId===c.id?'selected':''}>${c.name}${c.section}</option>`).join('')}</select></div>
+        <div class="field"><label>Department</label><select name="departmentId" class="input" style="width:100%;"><option value="">— None —</option>${departments.map(d=>`<option value="${d.id}" ${student&&student.departmentId===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
+      </div>
+      <div class="field">
+        <label>Enrolled Classes / Subjects</label>
+        <div style="display:flex;flex-direction:column;gap:6px;max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:12px;padding:10px 12px;">
+          ${classes.map(c=>`<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;">
+            <input type="checkbox" name="classIds" value="${c.id}" ${enrolledClassIds.has(c.id)?'checked':''}/> ${c.subject} — ${c.name}${c.section}
+          </label>`).join('')}
+        </div>
       </div>
       <div class="field"><label>Email</label><input required type="email" name="email" class="input" value="${student?student.email:''}"/></div>
       <div class="field"><label>Phone</label><input name="phone" class="input" value="${student?student.phone||'':''}"/></div>
@@ -2332,16 +2696,27 @@ function openStudentModal(studentId, presetClassId){
   overlay.querySelector('#student-form').onsubmit = async (e)=>{
     e.preventDefault();
     const fd = new FormData(e.target);
-    const cls = classes.find(c=>c.id===fd.get('classId'));
-    const payload = { name:fd.get('name'), roll:Number(fd.get('roll')), classId:fd.get('classId'), section:cls.section, email:fd.get('email'), phone:fd.get('phone'), guardian:fd.get('guardian'), status:'Active', enrolled: student?student.enrolled:todayStr() };
+    const selectedClassIds = fd.getAll('classIds');
+    const payload = { name:fd.get('name'), roll:Number(fd.get('roll')), departmentId:fd.get('departmentId')||null, email:fd.get('email'), phone:fd.get('phone'), guardian:fd.get('guardian'), status:'Active', enrolled: student?student.enrolled:todayStr() };
+    let studentId2;
     if(student){
       Object.assign(student, payload);
+      studentId2 = student.id;
       showToast('Student updated');
     } else {
-      const id = `S${2000+Math.floor(Math.random()*9000)}`;
-      data.students.push({ id, ...payload });
+      studentId2 = `S${2000+Math.floor(Math.random()*9000)}`;
+      data.students.push({ id: studentId2, ...payload });
       showToast('New student added');
     }
+    // Reconcile enrollments: add newly-checked classes, remove unchecked ones.
+    if(!data.enrollments) data.enrollments = [];
+    const existingForStudent = new Set(data.enrollments.filter(en=>en.studentId===studentId2).map(en=>en.classId));
+    for(const classId of selectedClassIds){
+      if(!existingForStudent.has(classId)){
+        data.enrollments.push({ id:`${classId}_${studentId2}`, studentId:studentId2, classId, departmentId: payload.departmentId, enrolledAt: todayStr() });
+      }
+    }
+    data.enrollments = data.enrollments.filter(en => en.studentId!==studentId2 || selectedClassIds.includes(en.classId));
     await persist(data); close(); renderView();
   };
 }
@@ -2349,6 +2724,7 @@ async function deleteStudent(sid){
   if(!confirm('Delete this student? This cannot be undone.')) return;
   const data = state.data;
   data.students = data.students.filter(s=>s.id!==sid);
+  data.enrollments = (data.enrollments||[]).filter(en=>en.studentId!==sid);
   await persist(data);
   showToast('Student deleted');
   renderView();
@@ -2358,44 +2734,72 @@ function renderStudentProfile(root){
   const data = state.data;
   const student = data.students.find(s=>s.id===state._studentProfile);
   if(!student){ state._studentProfile=null; return renderStudents(root); }
-  const history = Object.values(data.attendance).filter(r=>r.records[student.id]).sort((a,b)=>b.date.localeCompare(a.date));
-  const pct = attendancePct(data, student.id);
-  const present = history.filter(h=>h.records[student.id]==='Present').length;
-  const absent = history.filter(h=>h.records[student.id]==='Absent').length;
-  const late = history.filter(h=>h.records[student.id]==='Late').length;
-  const cls = (data.classes||[]).find(c=>c.id===student.classId);
+  const enrolled = classesForStudent(student.id);
+  const cachedHistory = state._studentHistoryCache && state._studentHistoryCache[student.id];
 
-  root.innerHTML = `
-    <button class="back-link" id="back-to-students">${ic('arrowLeft')} Back to Students</button>
-    <div class="card profile-head">
-      <div class="profile-id">
-        <div class="profile-av">${initials(student.name)}</div>
-        <div><div class="profile-name">${student.name}</div><div class="profile-meta">Roll #${student.roll} · ${cls?cls.name:''}${student.section} · ${student.email}</div></div>
+  const renderBody = (history, loading)=>{
+    const present = history.filter(h=>h.status==='Present').length;
+    const absent = history.filter(h=>h.status==='Absent').length;
+    const late = history.filter(h=>h.status==='Late').length;
+    const total = history.length;
+    const pct = total ? Math.round(present/total*100) : 100;
+
+    root.innerHTML = `
+      <button class="back-link" id="back-to-students">${ic('arrowLeft')} Back to Students</button>
+      <div class="card profile-head">
+        <div class="profile-id">
+          <div class="profile-av">${initials(student.name)}</div>
+          <div><div class="profile-name">${student.name}</div><div class="profile-meta">Roll #${student.roll} · ${deptNameOf(student.departmentId)||'No department'} · ${enrolled.length?enrolled.map(c=>`${c.name}${c.section}`).join(', '):'No classes'} · ${student.email}</div></div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline" id="profile-marks">${ic('bar')} View Marks</button>
+          <button class="btn btn-outline" id="profile-edit">${ic('edit')} Edit</button>
+          <button class="btn btn-danger" id="profile-delete">${ic('trash')} Delete</button>
+        </div>
       </div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-outline" id="profile-edit">${ic('edit')} Edit</button>
-        <button class="btn btn-danger" id="profile-delete">${ic('trash')} Delete</button>
+      <div class="grid-4" style="margin-bottom:20px;">
+        <div class="card statbox"><div class="n" style="color:${pct<(data.org.minAttendancePct??75)?T.red:T.mintDeep}">${loading?'…':pct+'%'}</div><div class="l">Attendance (all-time)</div></div>
+        <div class="card statbox"><div class="n" style="color:${T.mintDeep}">${loading?'…':present}</div><div class="l">Present Days</div></div>
+        <div class="card statbox"><div class="n" style="color:${T.red}">${loading?'…':absent}</div><div class="l">Absent Days</div></div>
+        <div class="card statbox"><div class="n" style="color:${T.amber}">${loading?'…':late}</div><div class="l">Late Days</div></div>
       </div>
-    </div>
-    <div class="grid-4" style="margin-bottom:20px;">
-      <div class="card statbox"><div class="n" style="color:${pct<75?T.red:T.mintDeep}">${pct}%</div><div class="l">Attendance</div></div>
-      <div class="card statbox"><div class="n" style="color:${T.mintDeep}">${present}</div><div class="l">Present Days</div></div>
-      <div class="card statbox"><div class="n" style="color:${T.red}">${absent}</div><div class="l">Absent Days</div></div>
-      <div class="card statbox"><div class="n" style="color:${T.amber}">${late}</div><div class="l">Late Days</div></div>
-    </div>
-    <div class="card" style="padding:22px;">
-      <div class="chart-title">Attendance History</div>
-      ${history.length===0?`<div class="empty"><div class="empty-txt">No attendance recorded yet.</div></div>`:
-      history.slice(0,15).map(h=>`<div class="hist-row"><span>${prettyDate(h.date)} · ${h.subject}</span><span class="badge" style="background:${STATUS_META[h.records[student.id]].bg};color:${STATUS_META[h.records[student.id]].color}">${ic(STATUS_META[h.records[student.id]].icon).replace('<svg','<svg style="width:12px;height:12px"')} ${h.records[student.id]}</span></div>`).join('')}
-    </div>
-  `;
-  document.getElementById('back-to-students').onclick = ()=>{ state._studentProfile=null; renderView(); };
-  document.getElementById('profile-edit').onclick = ()=> openStudentModal(student.id);
-  document.getElementById('profile-delete').onclick = async ()=>{
-    if(!confirm('Delete this student? This cannot be undone.')) return;
-    data.students = data.students.filter(s=>s.id!==student.id);
-    await persist(data); state._studentProfile=null; showToast('Student deleted'); renderView();
+      <div class="card" style="padding:22px;">
+        <div class="chart-title">Attendance History${total>15?` <span style="font-weight:500;color:var(--slate);font-size:12px;">(most recent 15 of ${total})</span>`:''}</div>
+        ${loading?`<div class="empty"><div class="empty-txt">Loading full attendance history…</div></div>`:
+        history.length===0?`<div class="empty"><div class="empty-txt">No attendance recorded yet.</div></div>`:
+        history.slice(0,15).map(h=>`<div class="hist-row"><span>${prettyDate(h.date)} · ${h.subject}</span><span class="badge" style="background:${STATUS_META[h.status].bg};color:${STATUS_META[h.status].color}">${ic(STATUS_META[h.status].icon).replace('<svg','<svg style="width:12px;height:12px"')} ${h.status}</span></div>`).join('')}
+      </div>
+    `;
+    document.getElementById('back-to-students').onclick = ()=>{ state._studentProfile=null; renderView(); };
+    document.getElementById('profile-marks').onclick = ()=>{
+      pushNav();
+      state._studentProfile = null;
+      state._markStudentFilter = student.id;
+      state.view = 'marks';
+      render();
+    };
+    document.getElementById('profile-edit').onclick = ()=> openStudentModal(student.id);
+    document.getElementById('profile-delete').onclick = ()=> deleteStudent(student.id);
   };
+
+  if(cachedHistory){
+    renderBody(cachedHistory, false);
+    return;
+  }
+
+  // Full multi-year history isn't preloaded (see loadData()'s 14-day
+  // window) — fetch it on demand, scoped to just this one student via
+  // an indexed query, so opening a profile stays fast no matter how
+  // large the college-wide attendance collection has grown.
+  renderBody([], true);
+  fetchStudentAttendanceHistory(student.id).then(history=>{
+    if(!state._studentHistoryCache) state._studentHistoryCache = {};
+    state._studentHistoryCache[student.id] = history;
+    if(state._studentProfile===student.id) renderBody(history, false);
+  }).catch(err=>{
+    console.error('Failed to load student attendance history:', err);
+    if(state._studentProfile===student.id) renderBody([], false);
+  });
 }
 
 /* ============================================================================
@@ -2419,11 +2823,12 @@ function renderClasses(root){
       </div>
     `:`<div class="grid-2">
       ${classes.map(c=>{
-        const roster = data.students.filter(s=>s.classId===c.id);
+        const roster = rosterFor(c.id);
         const days = c.days||[];
+        const deptLabel = deptNameOf(c.departmentId);
         return `<div class="card card-hover class-card">
           <div class="class-card-top">
-            <div><h3>${c.name}${c.section} — ${c.subject}</h3><div class="dept">${c.department||''}${c.department?' · ':''}${c.room||''}</div></div>
+            <div><h3>${c.name}${c.section} — ${c.subject}</h3><div class="dept">${deptLabel}${deptLabel?' · ':''}${c.room||''}</div></div>
             <div class="class-ic">${ic('school').replace('<svg','<svg style="width:16px;height:16px;color:var(--blue-deep)"')}</div>
           </div>
           <div class="class-info">
@@ -2453,6 +2858,7 @@ function renderClasses(root){
 function openClassModal(classId){
   const data = state.data;
   if(!data.classes) data.classes = [];
+  const departments = data.departments || [];
   const cls = classId ? data.classes.find(c=>c.id===classId) : null;
   const selectedDays = new Set(cls ? (cls.days||[]) : ["Mon","Tue","Wed","Thu","Fri"]);
   const overlay = document.createElement('div');
@@ -2470,7 +2876,7 @@ function openClassModal(classId){
         <div class="field"><label>Room</label><input name="room" class="input" placeholder="Room 204" value="${cls?cls.room||'':''}"/></div>
       </div>
       <div class="modal-grid2">
-        <div class="field"><label>Department</label><input name="department" class="input" placeholder="Science" value="${cls?cls.department||'':''}"/></div>
+        <div class="field"><label>Department</label><select name="departmentId" class="input" style="width:100%;">${departments.length===0?`<option value="">No departments yet — add one in Settings</option>`:`<option value="">— None —</option>${departments.map(d=>`<option value="${d.id}" ${cls&&cls.departmentId===d.id?'selected':''}>${d.name}</option>`).join('')}`}</select></div>
         <div class="field"><label>Time</label><input required name="time" type="time" class="input" value="${cls&&cls.time24?cls.time24:''}"/></div>
       </div>
       <div class="field">
@@ -2498,7 +2904,7 @@ function openClassModal(classId){
     if(days.length===0){ showToast('Select at least one day'); return; }
     const time24 = fd.get('time');
     const timeLabel = time24 ? formatTime12(time24) : '';
-    const payload = { name:fd.get('name'), section:fd.get('section'), subject:fd.get('subject'), teacher:fd.get('teacher'), room:fd.get('room'), department:fd.get('department'), time:timeLabel, time24, days };
+    const payload = { name:fd.get('name'), section:fd.get('section'), subject:fd.get('subject'), teacher:fd.get('teacher'), room:fd.get('room'), departmentId:fd.get('departmentId')||null, time:timeLabel, time24, days };
     if(cls){
       Object.assign(cls, payload);
       showToast('Class updated');
@@ -2517,11 +2923,365 @@ function formatTime12(hhmm){
   return `${h12}:${String(m).padStart(2,'0')} ${period}`;
 }
 async function deleteClass(classId){
-  if(!confirm('Delete this class? Its attendance history will remain but the class will no longer appear in your timetable.')) return;
+  if(!confirm('Delete this class? Its attendance history will remain but the class will no longer appear in your timetable, and students will be unenrolled from it.')) return;
   const data = state.data;
   data.classes = (data.classes||[]).filter(c=>c.id!==classId);
+  data.enrollments = (data.enrollments||[]).filter(en=>en.classId!==classId);
   await persist(data);
   showToast('Class removed from timetable');
+  renderView();
+}
+
+/* ============================================================================
+   MARKS
+============================================================================ */
+function renderMarks(root){
+  const data = state.data;
+  const students = data.students || [];
+  const classes = data.classes || [];
+  const today = todayStr();
+  const defaultFrom = (()=>{ const d=new Date(); d.setDate(d.getDate()-89); return d.toISOString().slice(0,10); })();
+
+  const classFilter   = state._markClassFilter   || 'All';
+  const subjectFilter = state._markSubjectFilter || 'All';
+  const studentFilter = state._markStudentFilter || 'All';
+  const minFilter = state._markMin !== undefined && state._markMin !== '' ? Number(state._markMin) : null;
+  const maxFilter = state._markMax !== undefined && state._markMax !== '' ? Number(state._markMax) : null;
+  const from = state._markFrom || defaultFrom;
+  const to = state._markTo || today;
+
+  const subjects = [...new Set(classes.map(c=>c.subject).filter(Boolean))];
+  const singleStudent = studentFilter!=='All' ? students.find(s=>s.id===studentFilter) : null;
+
+  const enrich = (rawMarks)=> rawMarks.map(m=>{
+    const student = students.find(s=>s.id===m.studentId);
+    const cls = classes.find(c=>c.id===m.classId);
+    const pct = m.maxMarks ? Math.round((m.marks/m.maxMarks)*1000)/10 : 0;
+    return { ...m, studentName: student?student.name:'Unknown Student', className: cls?`${cls.name}${cls.section}`:'—', subject: m.subject || (cls?cls.subject:'—'), pct };
+  });
+
+  const applyFilters = (enriched)=> enriched.filter(m=>{
+    if(classFilter!=='All' && m.classId!==classFilter) return false;
+    if(subjectFilter!=='All' && m.subject!==subjectFilter) return false;
+    if(minFilter!==null && !isNaN(minFilter) && m.pct<minFilter) return false;
+    if(maxFilter!==null && !isNaN(maxFilter) && m.pct>maxFilter) return false;
+    return true;
+  }).sort((a,b)=> b.date.localeCompare(a.date));
+
+  const draw = (rawMarks, totalCountLabel, loading)=>{
+    const enriched = enrich(rawMarks);
+    const filtered = applyFilters(enriched);
+    const avg = filtered.length ? Math.round((filtered.reduce((s,m)=>s+m.pct,0)/filtered.length)*10)/10 : 0;
+    const highest = filtered.length ? Math.max(...filtered.map(m=>m.pct)) : 0;
+    const lowest = filtered.length ? Math.min(...filtered.map(m=>m.pct)) : 0;
+
+    root.innerHTML = `
+      <div class="page-head">
+        <div><h1>Marks</h1><p>${totalCountLabel}</p></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline" id="marks-export" ${loading?'disabled':''}>${ic('download')} Export CSV</button>
+          <button class="btn btn-primary" id="marks-add">${ic('plus')} Add Marks</button>
+        </div>
+      </div>
+
+      <div class="filters-row">
+        <select id="mk-student-filter" class="input">
+          <option value="All" ${studentFilter==='All'?'selected':''}>All Students</option>
+          ${students.map(s=>`<option value="${s.id}" ${studentFilter===s.id?'selected':''}>${s.name}</option>`).join('')}
+        </select>
+        ${singleStudent?'':`
+          <div class="field" style="margin:0;"><label style="font-size:11.5px;">From</label><input type="date" id="mk-from" class="input" value="${from}" max="${today}"/></div>
+          <div class="field" style="margin:0;"><label style="font-size:11.5px;">To</label><input type="date" id="mk-to" class="input" value="${to}" max="${today}"/></div>
+        `}
+        <select id="mk-class-filter" class="input">
+          <option value="All" ${classFilter==='All'?'selected':''}>All Classes</option>
+          ${classes.map(c=>`<option value="${c.id}" ${classFilter===c.id?'selected':''}>${c.name}${c.section}</option>`).join('')}
+        </select>
+        <select id="mk-subject-filter" class="input">
+          <option value="All" ${subjectFilter==='All'?'selected':''}>All Subjects</option>
+          ${subjects.map(s=>`<option value="${s}" ${subjectFilter===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+        <input id="mk-min" type="number" min="-500" max="100" class="input" style="width:110px;" placeholder="Min %" value="${state._markMin||''}"/>
+        <input id="mk-max" type="number" min="-500" max="100" class="input" style="width:110px;" placeholder="Max %" value="${state._markMax||''}"/>
+        ${(classFilter!=='All'||subjectFilter!=='All'||studentFilter!=='All'||state._markMin||state._markMax)?`<button class="btn btn-outline btn-sm" id="mk-clear">${ic('x').replace('<svg','<svg style="width:12px;height:12px"')} Clear filters</button>`:''}
+      </div>
+
+      <div class="grid-4" style="margin-bottom:20px;">
+        <div class="card statbox"><div class="n">${loading?'…':filtered.length}</div><div class="l">Entries Shown</div></div>
+        <div class="card statbox"><div class="n" style="color:${avg<40?T.red:avg<75?T.amber:T.mintDeep}">${loading?'…':avg+'%'}</div><div class="l">Average Score</div></div>
+        <div class="card statbox"><div class="n" style="color:${T.mintDeep}">${loading?'…':highest+'%'}</div><div class="l">Highest Score</div></div>
+        <div class="card statbox"><div class="n" style="color:${T.red}">${loading?'…':lowest+'%'}</div><div class="l">Lowest Score</div></div>
+      </div>
+
+      ${singleStudent && !loading ? renderStudentMarksAnalysis(singleStudent, filtered) : ''}
+      ${singleStudent && loading ? `<div class="card" style="padding:22px;margin-bottom:20px;"><div class="empty"><div class="empty-txt">Loading ${singleStudent.name}'s full marks history…</div></div></div>` : ''}
+
+      <div class="card table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Subject</th><th>Exam</th><th>Marks</th><th>%</th><th></th></tr></thead>
+          <tbody>
+            ${loading?`<tr><td colspan="8"><div class="empty"><div class="empty-txt">Loading marks…</div></div></td></tr>`:
+            filtered.length===0?`<tr><td colspan="8"><div class="empty"><div class="empty-ic">${ic('bar').replace('<svg','<svg style="width:20px;height:20px;color:var(--slate)"')}</div><div class="empty-txt">No marks match your filters.</div></div></td></tr>`:
+            filtered.map(m=>`<tr>
+              <td>${prettyDate(m.date)}</td>
+              <td><div class="tname"><div class="s-av" style="width:28px;height:28px;font-size:10px;">${initials(m.studentName)}</div><div class="n">${m.studentName}</div></div></td>
+              <td>${m.className}</td>
+              <td style="color:var(--slate)">${m.subject}</td>
+              <td style="color:var(--slate)">${m.examName}</td>
+              <td>${m.marks} / ${m.maxMarks}</td>
+              <td style="font-weight:700;color:${m.pct<40?T.red:m.pct<75?T.amber:T.mintDeep}">${m.pct}%</td>
+              <td>
+                <div class="row-actions">
+                  <button class="icon-btn" data-action="edit-mark" data-mid="${m.id}">${ic('edit').replace('<svg','<svg style="width:14px;height:14px;color:var(--slate)"')}</button>
+                  <button class="icon-btn" data-action="delete-mark" data-mid="${m.id}">${ic('trash').replace('<svg','<svg style="width:14px;height:14px;color:'+T.red+'"')}</button>
+                </div>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    document.getElementById('mk-class-filter').onchange = (e)=>{ state._markClassFilter=e.target.value; renderMarks(root); };
+    document.getElementById('mk-subject-filter').onchange = (e)=>{ state._markSubjectFilter=e.target.value; renderMarks(root); };
+    document.getElementById('mk-student-filter').onchange = (e)=>{ state._markStudentFilter=e.target.value; renderMarks(root); };
+    document.getElementById('mk-min').onchange = (e)=>{ state._markMin=e.target.value; renderMarks(root); };
+    document.getElementById('mk-max').onchange = (e)=>{ state._markMax=e.target.value; renderMarks(root); };
+    const fromEl = document.getElementById('mk-from'); if(fromEl) fromEl.onchange = (e)=>{ state._markFrom=e.target.value; renderMarks(root); };
+    const toEl = document.getElementById('mk-to'); if(toEl) toEl.onchange = (e)=>{ state._markTo=e.target.value; renderMarks(root); };
+    const clearBtn = document.getElementById('mk-clear');
+    if(clearBtn) clearBtn.onclick = ()=>{ state._markClassFilter='All'; state._markSubjectFilter='All'; state._markStudentFilter='All'; state._markMin=''; state._markMax=''; renderMarks(root); };
+
+    document.getElementById('marks-add').onclick = ()=> openMarkModal(null, studentFilter!=='All'?studentFilter:null, classFilter!=='All'?classFilter:null);
+    if(!loading){
+      document.getElementById('marks-export').onclick = ()=>{
+        const rows=[["Date","Student","Class","Subject","Exam","Marks","Max Marks","Percentage"], ...filtered.map(m=>[csvDateCell(m.date),m.studentName,m.className,m.subject,m.examName,m.marks,m.maxMarks,m.pct+'%'])];
+        const csv = rows.map(r=>r.map((v,i)=> i===0 ? v : `"${String(v).replace(/"/g,'""')}"`).join(",")).join(String.fromCharCode(10));
+        const blob = new Blob(['\uFEFF'+csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='marks.csv'; a.click();
+        showToast('Marks exported to CSV');
+      };
+    }
+    document.querySelectorAll('[data-action="edit-mark"]').forEach(b=>b.onclick=()=> openMarkModal(b.getAttribute('data-mid')));
+    document.querySelectorAll('[data-action="delete-mark"]').forEach(b=>b.onclick=()=> deleteMark(b.getAttribute('data-mid')));
+  };
+
+  /*
+   * Marks now load as a rolling ~90-day window at boot (see loadData()),
+   * since weekly exams across a whole college add up fast over the
+   * years. Two on-demand paths cover everything outside that window:
+   *   - a single student selected -> fetch THAT student's complete,
+   *     all-time marks history (an indexed, scoped query — same
+   *     pattern as fetchStudentAttendanceHistory)
+   *   - browsing all students with a custom date range -> fetch that
+   *     exact range fresh, same pattern as the History page
+   */
+  if(singleStudent){
+    const cached = state._studentMarksCache && state._studentMarksCache[singleStudent.id];
+    if(cached){ draw(cached, `${cached.length} mark${cached.length===1?'':'s'} for ${singleStudent.name}`, false); return; }
+    draw([], `Loading marks for ${singleStudent.name}…`, true);
+    const fb = window.attendoFirebase;
+    const organizationId = getOrganizationId();
+    fb.getDocs(fb.query(
+      fb.collection(fb.db, 'organizations', organizationId, 'marks'),
+      fb.where('studentId', '==', singleStudent.id)
+    )).then(snap=>{
+      const records = []; snap.forEach(d=>records.push({ id:d.id, ...d.data() }));
+      if(!state._studentMarksCache) state._studentMarksCache = {};
+      state._studentMarksCache[singleStudent.id] = records;
+      if(state._markStudentFilter===singleStudent.id) draw(records, `${records.length} mark${records.length===1?'':'s'} for ${singleStudent.name}`, false);
+    }).catch(err=>{
+      console.error('Failed to load student marks history:', err);
+      if(state._markStudentFilter===singleStudent.id) draw([], `Couldn't load marks for ${singleStudent.name}`, false);
+    });
+    return;
+  }
+
+  const cacheKey = `${from}_${to}`;
+  if(state._marksCache && state._marksCache.key===cacheKey){
+    draw(state._marksCache.records, `${state._marksCache.records.length} mark${state._marksCache.records.length===1?'':'s'} recorded, ${prettyDate(from)} – ${prettyDate(to)}`, false);
+    return;
+  }
+  draw([], `Loading marks for ${prettyDate(from)} – ${prettyDate(to)}…`, true);
+  const fb = window.attendoFirebase;
+  const organizationId = getOrganizationId();
+  fb.getDocs(fb.query(
+    fb.collection(fb.db, 'organizations', organizationId, 'marks'),
+    fb.where('date', '>=', from),
+    fb.where('date', '<=', to)
+  )).then(snap=>{
+    const records = []; snap.forEach(d=>records.push({ id:d.id, ...d.data() }));
+    state._marksCache = { key: cacheKey, records };
+    if(state.view==='marks' && (state._markStudentFilter||'All')==='All') draw(records, `${records.length} mark${records.length===1?'':'s'} recorded, ${prettyDate(from)} – ${prettyDate(to)}`, false);
+  }).catch(err=>{
+    console.error('Failed to load marks range:', err);
+    if(state.view==='marks') draw([], `Couldn't load marks`, false);
+  });
+}
+
+function renderStudentMarksAnalysis(student, records){
+  const bySubject = {};
+  records.forEach(m=>{
+    if(!bySubject[m.subject]) bySubject[m.subject] = [];
+    bySubject[m.subject].push(m);
+  });
+  const subjectRows = Object.entries(bySubject).map(([subject, list])=>{
+    const avg = Math.round((list.reduce((s,m)=>s+m.pct,0)/list.length)*10)/10;
+    return {subject, avg, count:list.length};
+  }).sort((a,b)=> b.avg-a.avg);
+
+  const trend = [...records].sort((a,b)=> a.date.localeCompare(b.date));
+  const maxPct = 100;
+
+  return `<div class="card" style="padding:22px;margin-bottom:20px;">
+    <div class="chart-title">${student.name} — Deep Analysis</div>
+    ${records.length===0?`<div class="empty"><div class="empty-txt">No marks recorded for this student yet.</div></div>`:`
+    <div class="mk-analysis-grid">
+      <div>
+        <div style="font-size:12.5px;font-weight:700;color:var(--slate);margin-bottom:10px;">Average by Subject</div>
+        ${subjectRows.map(r=>`
+          <div style="margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+              <span style="font-weight:600;">${r.subject}</span>
+              <span style="color:${r.avg<40?T.red:r.avg<75?T.amber:T.mintDeep};font-weight:700;">${r.avg}% <span style="color:var(--slate);font-weight:500;">(${r.count})</span></span>
+            </div>
+            <div style="height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden;">
+              <div style="height:100%;width:${Math.min(r.avg,100)}%;border-radius:99px;background:${r.avg<40?T.red:r.avg<75?T.amber:T.mintDeep};"></div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      <div>
+        <div style="font-size:12.5px;font-weight:700;color:var(--slate);margin-bottom:10px;">Score Trend (oldest → newest)</div>
+        <div style="display:flex;align-items:flex-end;gap:6px;height:140px;">
+          ${trend.map(m=>`
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;" title="${m.subject} — ${prettyDate(m.date)} — ${m.pct}%">
+              <div style="width:100%;max-width:22px;border-radius:5px 5px 0 0;background:${m.pct<40?T.red:m.pct<75?T.amber:T.mintDeep};height:${Math.max((m.pct/maxPct)*100,4)}%;"></div>
+            </div>
+          `).join('')}
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--slate);margin-top:6px;">
+          <span>${trend.length?prettyDate(trend[0].date):''}</span>
+          <span>${trend.length?prettyDate(trend[trend.length-1].date):''}</span>
+        </div>
+      </div>
+    </div>`}
+  </div>`;
+}
+
+function findMarkAnywhere(markId){
+  if(!markId) return null;
+  const inWorkingSet = (state.data.marks||[]).find(m=>m.id===markId);
+  if(inWorkingSet) return inWorkingSet;
+  if(state._marksCache){
+    const hit = state._marksCache.records.find(m=>m.id===markId);
+    if(hit) return hit;
+  }
+  if(state._studentMarksCache){
+    for(const sid in state._studentMarksCache){
+      const hit = state._studentMarksCache[sid].find(m=>m.id===markId);
+      if(hit) return hit;
+    }
+  }
+  return null;
+}
+function openMarkModal(markId, presetStudentId, presetClassId){
+  const data = state.data;
+  const students = data.students || [];
+  const classes = data.classes || [];
+  if(students.length===0){ showToast('Add a student first'); state.view='students'; render(); return; }
+  // A mark being edited might be from an on-demand fetch (outside the
+  // preloaded ~90-day window — see renderMarks()) rather than data.marks
+  // itself, so look it up across every cache that could hold it.
+  const mark = markId ? findMarkAnywhere(markId) : null;
+  const defaultStudentId = mark ? mark.studentId : (presetStudentId || students[0].id);
+  const defaultClassId = mark ? mark.classId : (presetClassId || (classesForStudent(defaultStudentId)[0]||{}).id || (classes[0]||{}).id);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="card modal">
+    <div class="modal-head"><h3>${mark?'Edit Marks':'Add Marks'}</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
+    <form id="mark-form">
+      <div class="modal-grid2">
+        <div class="field"><label>Student</label><select name="studentId" class="input" style="width:100%;">${students.map(s=>`<option value="${s.id}" ${defaultStudentId===s.id?'selected':''}>${s.name}</option>`).join('')}</select></div>
+        <div class="field"><label>Class</label><select name="classId" class="input" style="width:100%;">${classes.map(c=>`<option value="${c.id}" ${defaultClassId===c.id?'selected':''}>${c.name}${c.section}</option>`).join('')}</select></div>
+      </div>
+      <div class="modal-grid2">
+        <div class="field"><label>Subject</label><input name="subject" class="input" placeholder="Maths" value="${mark?mark.subject:''}"/></div>
+        <div class="field"><label>Exam / Test Name</label><input required name="examName" class="input" placeholder="Unit Test 1" value="${mark?mark.examName:''}"/></div>
+      </div>
+      <div class="modal-grid2">
+        <div class="field"><label>Marks Obtained</label><input required type="number" min="-500" step="0.5" name="marks" class="input" value="${mark?mark.marks:''}"/></div>
+        <div class="field"><label>Maximum Marks</label><input required type="number" min="1" step="0.5" name="maxMarks" class="input" value="${mark?mark.maxMarks:100}"/></div>
+      </div>
+      <div class="field"><label>Date</label><input required type="date" name="date" class="input" value="${mark?mark.date:todayStr()}"/></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Marks</button>
+      </div>
+    </form>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close = ()=> overlay.remove();
+  overlay.querySelector('#modal-close').onclick = close;
+  overlay.querySelector('#modal-cancel').onclick = close;
+  overlay.querySelector('#mark-form').onsubmit = async (e)=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const cls = classes.find(c=>c.id===fd.get('classId'));
+    const marksVal = Number(fd.get('marks'));
+    const maxVal = Number(fd.get('maxMarks'));
+    if(maxVal<=0){ showToast('Maximum marks must be greater than 0'); return; }
+    if(marksVal>maxVal){ showToast('Marks obtained cannot exceed maximum marks'); return; }
+    const payload = {
+      studentId: fd.get('studentId'),
+      classId: fd.get('classId'),
+      subject: String(fd.get('subject')||'').trim() || (cls?cls.subject:''),
+      examName: String(fd.get('examName')).trim(),
+      marks: marksVal,
+      maxMarks: maxVal,
+      date: fd.get('date')
+    };
+    if(!data.marks) data.marks = [];
+    if(mark){
+      Object.assign(mark, payload);
+      // The found mark might have come from an on-demand cache rather
+      // than data.marks (see findMarkAnywhere) — make sure it's part of
+      // the working set persist() actually diffs against, or the edit
+      // would only update the display cache and never reach Firestore.
+      if(!data.marks.some(m=>m.id===mark.id)) data.marks.push(mark);
+      showToast('Marks updated');
+    } else {
+      const id = `M${Date.now()}${Math.floor(Math.random()*1000)}`;
+      data.marks.push({ id, ...payload });
+      showToast('Marks added');
+    }
+    // Invalidate on-demand caches so the Marks page re-fetches fresh
+    // data (including this change) instead of showing stale results.
+    state._marksCache = null;
+    state._studentMarksCache = null;
+    await persist(data); close(); renderView();
+  };
+  overlay.querySelector('[name="studentId"]').onchange = (e)=>{
+    const firstClass = classesForStudent(e.target.value)[0];
+    if(firstClass){ const clsSel = overlay.querySelector('[name="classId"]'); if(clsSel) clsSel.value = firstClass.id; }
+  };
+}
+
+async function deleteMark(markId){
+  if(!confirm('Delete this marks entry? This cannot be undone.')) return;
+  const data = state.data;
+  data.marks = (data.marks||[]).filter(m=>m.id!==markId);
+  if(!state._pendingMarkDeletes) state._pendingMarkDeletes = [];
+  state._pendingMarkDeletes.push(markId);
+  // Also drop it from any on-demand caches so it doesn't reappear from a stale fetch.
+  if(state._marksCache) state._marksCache.records = (state._marksCache.records||[]).filter(m=>m.id!==markId);
+  if(state._studentMarksCache){
+    for(const sid in state._studentMarksCache){
+      state._studentMarksCache[sid] = state._studentMarksCache[sid].filter(m=>m.id!==markId);
+    }
+  }
+  await persist(data);
+  showToast('Marks entry deleted');
   renderView();
 }
 
@@ -2531,51 +3291,218 @@ async function deleteClass(classId){
 function renderHistory(root){
   const data = state.data;
   const classFilter = state._histClass || 'All', statusFilter = state._histStatus || 'All';
-  const rows = [];
-  Object.values(data.attendance).forEach(rec=>{
-    if(classFilter!=='All' && rec.classId!==classFilter) return;
-    const clsObj = (data.classes||[]).find(c=>c.id===rec.classId);
-    const clsLabel = clsObj ? `${clsObj.name}${clsObj.section||''}` : (rec.classId||'—');
-    Object.entries(rec.records).forEach(([sid,status])=>{
-      if(statusFilter!=='All' && status!==statusFilter) return;
-      const student = data.students.find(s=>s.id===sid); if(!student) return;
-      rows.push({date:rec.date, student:student.name, cls:clsLabel, subject:rec.subject, status});
-    });
-  });
-  rows.sort((a,b)=>b.date.localeCompare(a.date));
-  const shown = rows.slice(0,200);
+  const today = todayStr();
+  const defaultFrom = (()=>{ const d=new Date(); d.setDate(d.getDate()-13); return d.toISOString().slice(0,10); })();
+  const from = state._histFrom || defaultFrom;
+  const to = state._histTo || today;
 
-  root.innerHTML = `
-    <div class="page-head"><h1>Attendance History</h1><button class="btn btn-outline" id="hist-export">${ic('download')} Export CSV</button></div>
-    <div class="filters-row">
-      <select id="hist-class" class="input"><option value="All" ${classFilter==='All'?'selected':''}>All Classes</option>${(data.classes||[]).map(c=>`<option value="${c.id}" ${classFilter===c.id?'selected':''}>${c.name}${c.section}</option>`).join('')}</select>
-      <select id="hist-status" class="input"><option value="All" ${statusFilter==='All'?'selected':''}>All Statuses</option>${STATUSES.map(s=>`<option ${statusFilter===s?'selected':''}>${s}</option>`).join('')}</select>
-    </div>
-    <div class="card table-wrap" style="max-height:520px;overflow-y:auto;">
-      <table>
-        <thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Subject</th><th>Status</th></tr></thead>
-        <tbody>
-          ${shown.length===0?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">No attendance recorded yet.</div></div></td></tr>`:
-          shown.map(r=>`<tr><td>${prettyDate(r.date)}</td><td style="font-weight:600;">${r.student}</td><td style="color:var(--slate)">${r.cls}</td><td style="color:var(--slate)">${r.subject}</td><td><span class="badge" style="background:${STATUS_META[r.status].bg};color:${STATUS_META[r.status].color}">${ic(STATUS_META[r.status].icon).replace('<svg','<svg style="width:12px;height:12px"')} ${r.status}</span></td></tr>`).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-  document.getElementById('hist-class').onchange = (e)=>{ state._histClass=e.target.value; renderHistory(root); };
-  document.getElementById('hist-status').onchange = (e)=>{ state._histStatus=e.target.value; renderHistory(root); };
-  document.getElementById('hist-export').onclick = ()=>{
-    const r=[["Date","Student","Class","Subject","Status"], ...rows.map(x=>[`'${prettyDate(x.date)}`,x.student,x.cls,x.subject,x.status])];
-    const csv = r.map(row=>row.map(v=>`"${v}"`).join(",")).join(String.fromCharCode(13)+String.fromCharCode(10));
-    const blob = new Blob(['\uFEFF'+csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='attendance-history.csv'; a.click();
+  const buildRows = (sessions)=>{
+    const rows = [];
+    Object.values(sessions).forEach(rec=>{
+      if(classFilter!=='All' && rec.classId!==classFilter) return;
+      const clsObj = (data.classes||[]).find(c=>c.id===rec.classId);
+      const clsLabel = clsObj ? `${clsObj.name}${clsObj.section||''}` : (rec.classId||'—');
+      Object.entries(rec.records).forEach(([sid,status])=>{
+        if(statusFilter!=='All' && status!==statusFilter) return;
+        const student = data.students.find(s=>s.id===sid); if(!student) return;
+        rows.push({date:rec.date, student:student.name, cls:clsLabel, subject:rec.subject, status});
+      });
+    });
+    rows.sort((a,b)=>b.date.localeCompare(a.date));
+    return rows;
   };
+
+  const draw = (rows, loading)=>{
+    const shown = rows.slice(0,500);
+    root.innerHTML = `
+      <div class="page-head"><h1>Attendance History</h1><button class="btn btn-outline" id="hist-export" ${loading?'disabled':''}>${ic('download')} Export CSV</button></div>
+      <div class="filters-row">
+        <div class="field" style="margin:0;"><label style="font-size:11.5px;">From</label><input type="date" id="hist-from" class="input" value="${from}" max="${today}"/></div>
+        <div class="field" style="margin:0;"><label style="font-size:11.5px;">To</label><input type="date" id="hist-to" class="input" value="${to}" max="${today}"/></div>
+        <select id="hist-class" class="input"><option value="All" ${classFilter==='All'?'selected':''}>All Classes</option>${(data.classes||[]).map(c=>`<option value="${c.id}" ${classFilter===c.id?'selected':''}>${c.name}${c.section}</option>`).join('')}</select>
+        <select id="hist-status" class="input"><option value="All" ${statusFilter==='All'?'selected':''}>All Statuses</option>${STATUSES.map(s=>`<option ${statusFilter===s?'selected':''}>${s}</option>`).join('')}</select>
+      </div>
+      <div class="card table-wrap" style="max-height:520px;overflow-y:auto;">
+        <table>
+          <thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Subject</th><th>Status</th></tr></thead>
+          <tbody>
+            ${loading?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">Loading attendance for ${prettyDate(from)} – ${prettyDate(to)}…</div></div></td></tr>`:
+            shown.length===0?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">No attendance recorded in this range.</div></div></td></tr>`:
+            shown.map(r=>`<tr><td>${prettyDate(r.date)}</td><td style="font-weight:600;">${r.student}</td><td style="color:var(--slate)">${r.cls}</td><td style="color:var(--slate)">${r.subject}</td><td><span class="badge" style="background:${STATUS_META[r.status].bg};color:${STATUS_META[r.status].color}">${ic(STATUS_META[r.status].icon).replace('<svg','<svg style="width:12px;height:12px"')} ${r.status}</span></td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      ${!loading && rows.length>500?`<div style="font-size:12px;color:var(--slate);margin-top:10px;">Showing the most recent 500 of ${rows.length} matching records. Narrow the date range or filters to see the rest, or use Export CSV for the full set.</div>`:''}
+    `;
+    document.getElementById('hist-from').onchange = (e)=>{ state._histFrom=e.target.value; renderHistory(root); };
+    document.getElementById('hist-to').onchange = (e)=>{ state._histTo=e.target.value; renderHistory(root); };
+    document.getElementById('hist-class').onchange = (e)=>{ state._histClass=e.target.value; renderHistory(root); };
+    document.getElementById('hist-status').onchange = (e)=>{ state._histStatus=e.target.value; renderHistory(root); };
+    if(!loading){
+      document.getElementById('hist-export').onclick = ()=>{
+        const r=[["Date","Student","Class","Subject","Status"], ...rows.map(x=>[csvDateCell(x.date),x.student,x.cls,x.subject,x.status])];
+        const csv = r.map(row=>row.map((v,i)=> i===0 ? v : `"${String(v).replace(/"/g,'""')}"`).join(",")).join(String.fromCharCode(13)+String.fromCharCode(10));
+        const blob = new Blob(['\uFEFF'+csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='attendance-history.csv'; a.click();
+      };
+    }
+  };
+
+  const cacheKey = `${from}_${to}`;
+  if(state._histCache && state._histCache.key===cacheKey){
+    draw(buildRows(state._histCache.sessions), false);
+    return;
+  }
+
+  // Only the last 14 days are preloaded (see loadData()); any other range
+  // — including everything History defaults to browsing further back —
+  // is fetched fresh here with an explicit date-bounded Firestore query,
+  // so browsing years of history never means loading years of history.
+  draw([], true);
+  const fb = window.attendoFirebase;
+  const organizationId = getOrganizationId();
+  fb.getDocs(fb.query(
+    fb.collection(fb.db, 'organizations', organizationId, 'attendanceSessions'),
+    fb.where('date', '>=', from),
+    fb.where('date', '<=', to)
+  )).then(snap=>{
+    const sessions = {};
+    snap.forEach(docSnap=>{ sessions[docSnap.id] = docSnap.data(); });
+    state._histCache = { key: cacheKey, sessions };
+    if(state.view==='history') draw(buildRows(sessions), false);
+  }).catch(err=>{
+    console.error('Failed to load attendance history range:', err);
+    if(state.view==='history') draw([], false);
+  });
 }
 
 /* ============================================================================
    SETTINGS
 ============================================================================ */
+/* ============================================================================
+   ONE-TIME STRUCTURE MIGRATION
+   ------------------------------------------------------------------------
+   For accounts created before multi-class enrollment support. Old data
+   shapes it upgrades:
+     - student.classId / student.section (single class)  -> an enrollments doc
+     - class.department (free text)                      -> a real departments doc + class.departmentId
+     - the old flat "attendance" collection                -> attendanceSessions + attendanceRecords
+
+   Deterministic IDs throughout (enrollment id = `${classId}_${studentId}`,
+   session/record ids reuse the original date|classId key) make this
+   idempotent — running it again just re-writes the same documents rather
+   than creating duplicates. Nothing in the OLD "attendance" collection is
+   deleted, so it stays as a backup until you're confident and remove it
+   yourself from the Firebase console.
+============================================================================ */
+async function runStructureMigration(){
+  const statusEl = document.getElementById('migration-status');
+  const setStatus = (msg)=>{ if(statusEl) statusEl.textContent = msg; };
+  const btn = document.getElementById('run-migration');
+  if(btn) btn.disabled = true;
+
+  try{
+    const fb = window.attendoFirebase;
+    const user = fb.auth.currentUser;
+    if(!user){ setStatus('Not signed in.'); return; }
+    const organizationId = getOrganizationId();
+    const data = state.data;
+
+    setStatus('Migrating departments…');
+
+    // 1) Turn any legacy free-text class.department values into real department docs.
+    if(!data.departments) data.departments = [];
+    const deptByName = new Map(data.departments.map(d=>[d.name.toLowerCase(), d]));
+    for(const cls of (data.classes||[])){
+      const legacyName = cls.department; // old free-text field, if present
+      if(cls.departmentId) continue; // already migrated
+      if(!legacyName) continue;
+      let dept = deptByName.get(legacyName.toLowerCase());
+      if(!dept){
+        dept = { id:`DEPT${Date.now().toString(36)}${Math.floor(Math.random()*900+100)}`, name: legacyName, code:'' };
+        data.departments.push(dept);
+        deptByName.set(legacyName.toLowerCase(), dept);
+      }
+      cls.departmentId = dept.id;
+    }
+
+    setStatus('Migrating student class assignments…');
+
+    // 2) Turn each student's old single classId into an enrollment.
+    if(!data.enrollments) data.enrollments = [];
+    const existingEnrollIds = new Set(data.enrollments.map(e=>e.id));
+    let newEnrollments = 0;
+    for(const s of (data.students||[])){
+      const legacyClassId = s.classId; // old single-class field, if present
+      if(!legacyClassId) continue;
+      const enrollId = `${legacyClassId}_${s.id}`;
+      if(existingEnrollIds.has(enrollId)) continue;
+      const cls = (data.classes||[]).find(c=>c.id===legacyClassId);
+      data.enrollments.push({ id: enrollId, studentId: s.id, classId: legacyClassId, departmentId: cls?cls.departmentId:null, enrolledAt: s.enrolled||todayStr() });
+      existingEnrollIds.add(enrollId);
+      newEnrollments++;
+    }
+
+    await persist(data);
+
+    setStatus('Migrating attendance history — this can take a while for large histories…');
+
+    // 3) Copy the OLD flat "attendance" collection into the new
+    // attendanceSessions + attendanceRecords structure.
+    const oldAttendanceSnap = await fb.getDocs(
+      fb.collection(fb.db, 'organizations', organizationId, 'attendance')
+    );
+
+    let sessionsMigrated = 0, recordsMigrated = 0;
+    const ops = [];
+    const sessionsCollection = fb.collection(fb.db, 'organizations', organizationId, 'attendanceSessions');
+    const recordsCollection = fb.collection(fb.db, 'organizations', organizationId, 'attendanceRecords');
+
+    oldAttendanceSnap.forEach(docSnap=>{
+      const old = docSnap.data();
+      const [date, classId] = docSnap.id.split('|');
+      if(!date || !classId || !old.records) return;
+      const cls = (data.classes||[]).find(c=>c.id===classId);
+      const sessionRef = fb.doc(sessionsCollection, docSnap.id);
+      ops.push(batch => batch.set(sessionRef, {
+        classId, date, subject: old.subject||(cls?cls.subject:''), teacher: old.teacher||(cls?cls.teacher:''),
+        departmentId: cls?cls.departmentId:null, records: old.records
+      }, { merge:true }));
+      sessionsMigrated++;
+      for(const [studentId, status] of Object.entries(old.records)){
+        const recordId = `${date}|${classId}|${studentId}`;
+        const ref = fb.doc(recordsCollection, recordId);
+        ops.push(batch => batch.set(ref, {
+          studentId, classId, departmentId: cls?cls.departmentId:null,
+          subject: old.subject||(cls?cls.subject:''), date, status
+        }, { merge:true }));
+        recordsMigrated++;
+      }
+    });
+
+    if(ops.length){
+      await _commitInChunks(fb, ops);
+    }
+
+    setStatus(`Done — ${newEnrollments} enrollment${newEnrollments===1?'':'s'} created, ${sessionsMigrated} attendance session${sessionsMigrated===1?'':'s'} and ${recordsMigrated} attendance record${recordsMigrated===1?'':'s'} migrated. Reloading…`);
+    showToast('Migration complete');
+
+    // Reload from Firestore so the app picks up the migrated structure.
+    state.data = await loadData();
+    renderView();
+
+  } catch(error){
+    console.error('Migration failed:', error);
+    setStatus('Migration failed — see console for details.');
+    showToast('Migration failed');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
 function renderSettings(root){
   const data = state.data;
   const theme = state._theme || 'light';
+  const departments = data.departments || [];
   root.innerHTML = `
     <h1 style="font-size:24px;font-weight:800;margin-bottom:22px;max-width:600px;">Settings</h1>
     <div style="max-width:600px;">
@@ -2585,18 +3512,40 @@ function renderSettings(root){
         <div class="field"><label>Organization Type</label><select id="set-org-type" class="input" style="width:100%;">${["School","College","University","Coaching Institute","Tuition Center","Training Institute","Company","Other"].map(t=>`<option ${data.org.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
       </div>
       <div class="card" style="padding:22px;margin-bottom:18px;">
-        <div class="settings-title">Attendance Rules</div>
-        <div class="modal-grid2">
-          <div class="field"><label id="late-label">Late Threshold (10 min after start)</label><input type="range" min="0" max="30" value="10" id="late-range" style="width:100%;accent-color:var(--blue);"/></div>
-          <div class="field"><label id="min-label">Minimum Attendance % (75%)</label><input type="range" min="50" max="100" value="75" id="min-range" style="width:100%;accent-color:var(--blue);"/></div>
+        <div class="settings-title">Departments</div>
+        <div style="font-size:12.5px;color:var(--slate);margin-bottom:14px;">Used to group students and classes (e.g. Computer Science, Mechanical, Commerce).</div>
+        ${departments.length===0?`<div style="font-size:13px;color:var(--slate);margin-bottom:14px;">No departments yet.</div>`:
+        departments.map(d=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-top:1px solid var(--border);">
+          <div><span style="font-weight:600;">${d.name}</span>${d.code?` <span style="color:var(--slate);font-size:12px;">(${d.code})</span>`:''}</div>
+          <button class="icon-btn" data-action="delete-dept" data-did="${d.id}">${ic('trash').replace('<svg','<svg style="width:14px;height:14px;color:'+T.red+'"')}</button>
+        </div>`).join('')}
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <input id="new-dept-name" class="input" placeholder="Department name (e.g. Computer Science)" style="flex:2;"/>
+          <input id="new-dept-code" class="input" placeholder="Code (e.g. CSE)" style="flex:1;"/>
+          <button class="btn btn-outline" id="add-dept">${ic('plus')} Add</button>
         </div>
       </div>
-      <div class="card" style="padding:22px;margin-bottom:22px;">
+      <div class="card" style="padding:22px;margin-bottom:18px;">
+        <div class="settings-title">Attendance Rules</div>
+        <div class="modal-grid2">
+          <div class="field"><label id="late-label">Late Threshold (${data.org.lateThresholdMin ?? 10} min after start)</label><input type="range" min="0" max="30" value="${data.org.lateThresholdMin ?? 10}" id="late-range" style="width:100%;accent-color:var(--blue);"/></div>
+          <div class="field"><label id="min-label">Minimum Attendance % (${data.org.minAttendancePct ?? 75}%)</label><input type="range" min="50" max="100" value="${data.org.minAttendancePct ?? 75}" id="min-range" style="width:100%;accent-color:var(--blue);"/></div>
+        </div>
+      </div>
+      <div class="card" style="padding:22px;margin-bottom:18px;">
         <div class="settings-title">Appearance</div>
         <div class="theme-row">
           ${['light','dark','system'].map(t=>`<button class="theme-opt ${theme===t?'active':''}" data-action="set-theme" data-theme="${t}">${t}</button>`).join('')}
         </div>
         <div style="font-size:12px;color:var(--slate);margin-top:8px;">Default theme is White + Blue + Mint.</div>
+      </div>
+      <div class="card" style="padding:22px;margin-bottom:22px;">
+        <div class="settings-title">Data Structure Migration</div>
+        <div style="font-size:12.5px;color:var(--slate);margin-bottom:14px;line-height:1.6;">
+          One-time upgrade for accounts created before multi-class enrollment support. Converts each student's old single class into an enrollment record (so they keep their class, but can now be added to more), and copies existing attendance history into the new scalable storage. Safe to run more than once — it never deletes your original data.
+        </div>
+        <button class="btn btn-outline" id="run-migration">${ic('zap')} Run Migration</button>
+        <div id="migration-status" style="font-size:12.5px;color:var(--slate);margin-top:10px;"></div>
       </div>
       <button class="btn btn-primary" id="save-settings">${ic('save')} Save Settings</button>
     </div>
@@ -2604,9 +3553,29 @@ function renderSettings(root){
   document.getElementById('late-range').oninput = (e)=>{ document.getElementById('late-label').textContent = `Late Threshold (${e.target.value} min after start)`; };
   document.getElementById('min-range').oninput = (e)=>{ document.getElementById('min-label').textContent = `Minimum Attendance % (${e.target.value}%)`; };
   document.querySelectorAll('[data-action="set-theme"]').forEach(b=>b.onclick=()=>{ setTheme(b.getAttribute('data-theme')); renderSettings(root); });
+  document.getElementById('add-dept').onclick = async ()=>{
+    const name = document.getElementById('new-dept-name').value.trim();
+    const code = document.getElementById('new-dept-code').value.trim();
+    if(!name){ showToast('Enter a department name'); return; }
+    if(!data.departments) data.departments = [];
+    const id = `DEPT${Date.now().toString(36)}${Math.floor(Math.random()*900+100)}`;
+    data.departments.push({ id, name, code });
+    await persist(data); showToast('Department added'); renderSettings(root);
+  };
+  document.querySelectorAll('[data-action="delete-dept"]').forEach(b=>b.onclick=async ()=>{
+    if(!confirm('Delete this department? Students and classes assigned to it will keep their other data but lose this department link.')) return;
+    const did = b.getAttribute('data-did');
+    data.departments = data.departments.filter(d=>d.id!==did);
+    (data.students||[]).forEach(s=>{ if(s.departmentId===did) s.departmentId = null; });
+    (data.classes||[]).forEach(c=>{ if(c.departmentId===did) c.departmentId = null; });
+    await persist(data); showToast('Department deleted'); renderSettings(root);
+  });
+  document.getElementById('run-migration').onclick = ()=> runStructureMigration();
   document.getElementById('save-settings').onclick = async ()=>{
     data.org.name = document.getElementById('set-org-name').value;
     data.org.type = document.getElementById('set-org-type').value;
+    data.org.lateThresholdMin = Number(document.getElementById('late-range').value);
+    data.org.minAttendancePct = Number(document.getElementById('min-range').value);
     await persist(data); showToast('Settings saved');
   };
 }
