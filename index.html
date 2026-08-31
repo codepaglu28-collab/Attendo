@@ -477,6 +477,8 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
     signInWithPopup,
+    signInWithRedirect,
+    getRedirectResult,
     GoogleAuthProvider,
     signOut,
     onAuthStateChanged
@@ -519,6 +521,8 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
     signInWithPopup,
+    signInWithRedirect,
+    getRedirectResult,
     googleProvider,
     signOut,
     onAuthStateChanged,
@@ -1424,6 +1428,31 @@ function boot(){
     return;
   }
 
+  /*
+   * If the person just came back from the Google sign-in redirect
+   * (see attachAuthEvents' google-auth handler), pick up the result
+   * here. authBusy guards this window so the onAuthStateChanged
+   * listener below — which will also fire once Firebase processes the
+   * returning session — doesn't race with this and double-handle it.
+   */
+  state.authBusy = true;
+  fb.getRedirectResult(fb.auth)
+    .then(async (result) => {
+      if(result && result.user){
+        try {
+          await finishGoogleSignIn(result.user);
+        } catch(error){
+          console.error('Google redirect sign-in error:', error);
+          showToast('Google sign-in failed. Please try again.');
+        }
+      }
+      state.authBusy = false;
+    })
+    .catch((error) => {
+      console.error('getRedirectResult error:', error);
+      state.authBusy = false;
+    });
+
   fb.onAuthStateChanged(
     fb.auth,
     async (user) => {
@@ -1764,6 +1793,92 @@ function renderAuth(){
     </div>
   </div>`;
 }
+/*
+ * Shared profile-bootstrap logic for a Google-authenticated user —
+ * used by both the redirect-result handler (boot(), the primary path)
+ * and the popup fallback below (kept for desktop browsers where
+ * popups work fine and feel snappier than a full-page redirect).
+ */
+async function finishGoogleSignIn(user){
+  const fb = window.attendoFirebase;
+  resetSessionState(); // clear any stale cached data from a previous account in this tab
+  const organizationId = `ORG_${user.uid}`;
+
+  const userRef = fb.doc(fb.db, 'organizations', organizationId, 'users', user.uid);
+  const userSnap = await fb.getDoc(userRef);
+
+  if(!userSnap.exists()){
+
+    /*
+     * First time signing in with this Google account — auto
+     * provision an organization + profile, same as a normal
+     * signup, using their Google name/email. No password
+     * needed since Firebase Auth already verified the account.
+     */
+
+    const profile = {
+      name: user.displayName || user.email?.split('@')[0] || 'Administrator',
+      email: user.email || '',
+      role: 'Administrator',
+      organizationId: organizationId,
+      createdAt: new Date().toISOString()
+    };
+
+    await fb.setDoc(userRef, profile);
+
+    await fb.setDoc(
+      fb.doc(fb.db, 'organizations', organizationId),
+      {
+        name: 'My Organization',
+        type: 'School',
+        ownerId: user.uid,
+        createdAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
+
+    state.user = {
+      uid: user.uid,
+      name: profile.name,
+      role: profile.role,
+      email: profile.email,
+      organizationId: organizationId
+    };
+
+  } else {
+
+    const profile = userSnap.data();
+
+    state.user = {
+      uid: user.uid,
+      name: profile.name || user.displayName || user.email,
+      role: profile.role || 'Administrator',
+      email: user.email,
+      organizationId: profile.organizationId || organizationId
+    };
+  }
+
+  state.data = await loadData();
+
+  if(!state.data){
+    state.data = {
+      org:{ name:"My Organization", type:"School", lateThresholdMin:10, minAttendancePct:75 },
+      students:[],
+      classes:[],
+      departments:[],
+      enrollments:[],
+      attendance:{},
+      marks:[]
+    };
+  }
+
+  pushNav();
+  state.stage = 'app';
+  state.view = 'dashboard';
+  render();
+  showToast('Welcome!');
+}
+
 function attachAuthEvents(){
 
   document.querySelectorAll('[data-action="google-auth"]')
@@ -1772,90 +1887,24 @@ function attachAuthEvents(){
         const fb = window.attendoFirebase;
         b.disabled = true;
         try {
-          const credential = await fb.signInWithPopup(fb.auth, fb.googleProvider);
-          const user = credential.user;
-          resetSessionState(); // clear any stale cached data from a previous account in this tab
-          const organizationId = `ORG_${user.uid}`;
-
-          const userRef = fb.doc(fb.db, 'organizations', organizationId, 'users', user.uid);
-          const userSnap = await fb.getDoc(userRef);
-
-          if(!userSnap.exists()){
-
-            /*
-             * First time signing in with this Google account — auto
-             * provision an organization + profile, same as a normal
-             * signup, using their Google name/email. No password
-             * needed since Firebase Auth already verified the account.
-             */
-
-            const profile = {
-              name: user.displayName || user.email?.split('@')[0] || 'Administrator',
-              email: user.email || '',
-              role: 'Administrator',
-              organizationId: organizationId,
-              createdAt: new Date().toISOString()
-            };
-
-            await fb.setDoc(userRef, profile);
-
-            await fb.setDoc(
-              fb.doc(fb.db, 'organizations', organizationId),
-              {
-                name: 'My Organization',
-                type: 'School',
-                ownerId: user.uid,
-                createdAt: new Date().toISOString()
-              },
-              { merge: true }
-            );
-
-            state.user = {
-              uid: user.uid,
-              name: profile.name,
-              role: profile.role,
-              email: profile.email,
-              organizationId: organizationId
-            };
-
-          } else {
-
-            const profile = userSnap.data();
-
-            state.user = {
-              uid: user.uid,
-              name: profile.name || user.displayName || user.email,
-              role: profile.role || 'Administrator',
-              email: user.email,
-              organizationId: profile.organizationId || organizationId
-            };
-          }
-
-          state.data = await loadData();
-
-          if(!state.data){
-            state.data = {
-              org:{ name:"My Organization", type:"School", lateThresholdMin:10, minAttendancePct:75 },
-              students:[],
-              classes:[],
-              departments:[],
-              enrollments:[],
-              attendance:{},
-              marks:[]
-            };
-          }
-
-          pushNav();
-          state.stage = 'app';
-          state.view = 'dashboard';
-          render();
-          showToast('Welcome!');
-
+          /*
+           * signInWithPopup fails in a lot of mobile browsers and
+           * embedded/in-app webviews (Google actively blocks OAuth
+           * inside webviews, and mobile browsers frequently block or
+           * mishandle popup windows entirely) — that's the
+           * "Google sign-in failed" error. signInWithRedirect avoids
+           * all of that by doing a normal full-page navigation to
+           * Google and back, which works everywhere. This leaves the
+           * page immediately; the result is picked up by
+           * getRedirectResult() in boot() once we return.
+           */
+          state.authBusy = true;
+          await fb.signInWithRedirect(fb.auth, fb.googleProvider);
         }
         catch(error){
           console.error('Google sign-in error:', error);
+          state.authBusy = false;
           b.disabled = false;
-          if(error.code === 'auth/popup-closed-by-user') return;
           showToast('Google sign-in failed. Please try again.');
         }
       };
