@@ -480,6 +480,7 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     signInWithRedirect,
     getRedirectResult,
     GoogleAuthProvider,
+    signInAnonymously,
     signOut,
     onAuthStateChanged
   } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
@@ -489,6 +490,7 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     setDoc,
     getDoc,
     collection,
+    collectionGroup,
     getDocs,
     addDoc,
     updateDoc,
@@ -524,12 +526,14 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     signInWithRedirect,
     getRedirectResult,
     googleProvider,
+    signInAnonymously,
     signOut,
     onAuthStateChanged,
     doc,
     setDoc,
     getDoc,
     collection,
+    collectionGroup,
     getDocs,
     addDoc,
     updateDoc,
@@ -672,6 +676,9 @@ function getOrganizationId(){
 function resetSessionState(){
   state.user = null;
   state.data = null;
+  state.parentSession = null;
+  state.parentData = null;
+  state.parentLoading = false;
   state._firestoreCache = null;
   state._pendingMarkDeletes = [];
   state._marksCache = null;
@@ -1088,8 +1095,12 @@ async function persist(data){
       }
     }
     for(const [id, student] of nextStudents){
-      if(!_recEqual(student, prevStudents.get(id))){
-        const { id: _drop, ...studentData } = student;
+      const { id: _drop, ...rest } = student;
+      // studentId is kept as a real field (in addition to being the
+      // doc id) purely so Parent Login can find this student via a
+      // collectionGroup('students') query — see parentLogin().
+      const studentData = { ...rest, studentId: id };
+      if(!_recEqual(studentData, prevStudents.get(id))){
         const ref = fb.doc(studentsCollection, id);
         ops.push(batch => batch.set(ref, studentData, { merge:true }));
       }
@@ -1320,17 +1331,134 @@ async function fetchStudentAttendanceHistory(studentId){
   return records;
 }
 
+/* --------------------------------------------------------------------------
+   PARENT LOGIN
+   ----------------------------------------------------------------------
+   Parents don't have a Firebase Auth account tied to an organization the
+   way an Administrator/Teacher does — organizationId for an admin is
+   derived straight from their own uid (`ORG_${uid}`, see
+   getOrganizationId()), which has no meaning for a parent. Instead, a
+   parent "logs in" with three things that together identify one student:
+   Student ID + Class + Section. That's effectively a shared passcode
+   (much like a roll-number + DOB portal at many real schools), so:
+     1. We sign the parent in anonymously (so Firestore rules can still
+        require request.auth != null) — see attachAuthEvents().
+     2. We run a collectionGroup('students') query for that Student ID
+        across every organization (this is why persist() now also stores
+        studentId as a real field on the student document, not just as
+        the doc id — collectionGroup queries can only filter on fields).
+     3. For each match we confirm the given Class name + Section belongs
+        to that organization AND that the student is actually enrolled in
+        it, before granting access. This also gives us the organizationId
+        (it's just the matched document's path).
+   IMPORTANT — Firestore security rules must be configured to allow this:
+   an authenticated (incl. anonymous) user needs read access to the
+   'students', 'classes', 'enrollments', 'attendanceRecords' and 'marks'
+   collections scoped this way. See the rules note further down this file
+   for a starting point, and tighten it before relying on this in
+   production (e.g. move the matching into a Cloud Function so a parent
+   session is never handed a broad collectionGroup read).
+--------------------------------------------------------------------------- */
+const _norm = s => String(s||'').trim().toLowerCase();
+
+async function parentLogin(studentIdRaw, classNameRaw, sectionRaw){
+  const fb = window.attendoFirebase;
+  const studentId = String(studentIdRaw||'').trim();
+  const wantClass = _norm(classNameRaw);
+  const wantSection = _norm(sectionRaw);
+
+  if(!studentId || !classNameRaw || !sectionRaw){
+    throw new Error('Please fill in Student ID, Class and Section.');
+  }
+
+  // Make sure we have a session Firestore rules will accept.
+  if(!fb.auth.currentUser){
+    await fb.signInAnonymously(fb.auth);
+  }
+
+  const studentsQuery = fb.query(
+    fb.collectionGroup(fb.db, 'students'),
+    fb.where('studentId', '==', studentId)
+  );
+  const studentsSnap = await fb.getDocs(studentsQuery);
+
+  for(const studentDoc of studentsSnap.docs){
+    // Path looks like organizations/{organizationId}/students/{studentId}
+    const organizationId = studentDoc.ref.parent.parent.id;
+    const student = { id: studentDoc.id, ...studentDoc.data() };
+
+    const classesSnap = await fb.getDocs(
+      fb.collection(fb.db, 'organizations', organizationId, 'classes')
+    );
+    const matchedClass = classesSnap.docs
+      .map(d=>({ id:d.id, ...d.data() }))
+      .find(c => _norm(c.name)===wantClass && _norm(c.section)===wantSection);
+
+    if(!matchedClass) continue;
+
+    const enrollSnap = await fb.getDocs(fb.query(
+      fb.collection(fb.db, 'organizations', organizationId, 'enrollments'),
+      fb.where('studentId', '==', studentId),
+      fb.where('classId', '==', matchedClass.id)
+    ));
+    if(enrollSnap.empty) continue;
+
+    return { organizationId, student, cls: matchedClass };
+  }
+
+  return null;
+}
+
+/* --------------------------------------------------------------------------
+   FETCH A LOGGED-IN PARENT'S CHILD'S FULL DATA (attendance + marks)
+--------------------------------------------------------------------------- */
+async function fetchParentChildData(organizationId, studentId){
+  const fb = window.attendoFirebase;
+
+  const [attendanceSnap, marksSnap, classesSnap] = await Promise.all([
+    fb.getDocs(fb.query(
+      fb.collection(fb.db, 'organizations', organizationId, 'attendanceRecords'),
+      fb.where('studentId', '==', studentId)
+    )),
+    fb.getDocs(fb.query(
+      fb.collection(fb.db, 'organizations', organizationId, 'marks'),
+      fb.where('studentId', '==', studentId)
+    )),
+    fb.getDocs(fb.collection(fb.db, 'organizations', organizationId, 'classes')),
+  ]);
+
+  const attendance = [];
+  attendanceSnap.forEach(d=>attendance.push(d.data()));
+  attendance.sort((a,b)=> b.date.localeCompare(a.date));
+
+  const classesById = {};
+  classesSnap.forEach(d=>{ classesById[d.id] = { id:d.id, ...d.data() }; });
+
+  const marks = [];
+  marksSnap.forEach(d=>{
+    const m = { id:d.id, ...d.data() };
+    const cls = classesById[m.classId];
+    const pct = m.maxMarks ? Math.round((m.marks/m.maxMarks)*1000)/10 : 0;
+    marks.push({ ...m, subject: m.subject || (cls?cls.subject:'—'), pct });
+  });
+
+  return { attendance, marks };
+}
+
 /* ============================================================================
    GLOBAL STATE
 ============================================================================ */
 const state = {
-  stage: 'landing', // landing | auth | app
-  authMode: 'login',
+  stage: 'landing', // landing | auth | app | parent
+  authMode: 'login', // login | signup | parent
   authBusy: false,
   user: null,
   view: 'dashboard',
   activeClass: null,
   data: null,
+  parentSession: null, // { organizationId, studentId, classId } once a parent has logged in
+  parentData: null,    // { student, cls, attendance:[], marks:[] } for the logged-in parent's child
+  parentLoading: false,
   toastTimer: null,
   quickIdx: 0,
   quickStatus: {},
@@ -1616,6 +1744,7 @@ function render(){
   applyTheme(state._theme, state.stage);
   if(state.stage==='landing'){ app.innerHTML = renderLanding(); attachLandingEvents(); return; }
   if(state.stage==='auth'){ app.innerHTML = renderAuth(); attachAuthEvents(); return; }
+  if(state.stage==='parent'){ app.innerHTML = renderParentShell(); attachParentShellEvents(); return; }
   if(state.view==='quickroll'){ app.innerHTML = renderQuickRoll(); attachQuickRollEvents(); return; }
   app.innerHTML = renderShell();
   attachShellEvents();
@@ -1659,6 +1788,7 @@ function renderLanding(){
       ${logoHTML()}
       <div class="nav-links"><a href="#features">Features</a><a href="#how">How it works</a><a href="#faq">FAQ</a></div>
       <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn" data-action="go-parent-login" style="background:none;color:var(--navy);padding:8px 6px;">Parent Login</button>
         <button class="btn" data-action="go-login" style="background:none;color:var(--navy);padding:8px 6px;">Log in</button>
         <button class="btn btn-primary" data-action="go-signup">Get Started</button>
       </div>
@@ -1778,6 +1908,12 @@ function attachLandingEvents(){
 function renderAuth(){
   const mode = state.authMode;
   const orgTypes = ["School","College","University","Coaching Institute","Tuition Center","Training Institute","Company","Other"];
+  const titles = {
+    login: ['Welcome back', 'Log in to continue to your dashboard.'],
+    signup: ['Create your organization', 'Set up attendance tracking in minutes.'],
+    parent: ['Parent Login', "Enter your child's Student ID, Class and Section to view their attendance and marks."],
+  };
+  const [title, sub] = titles[mode] || titles.login;
   return `<div class="auth-wrap">
     <div class="auth-side">
       <div style="margin-bottom:18px;"><button class="btn btn-sm" data-action="go-back" style="background:rgba(255,255,255,.1);color:#fff;gap:6px;">${ic('arrowLeft').replace('<svg','<svg style="width:13px;height:13px"')} Back</button></div>
@@ -1788,23 +1924,37 @@ function renderAuth(){
     <div class="auth-form-wrap">
       <form class="auth-form" id="auth-form">
         <div class="auth-mobile-back">${backBtnHTML()}</div>
-        <div class="auth-title">${mode==='login'?'Welcome back':'Create your organization'}</div>
-        <div class="auth-sub">${mode==='login'?'Log in to continue to your dashboard.':'Set up attendance tracking in minutes.'}</div>
-        ${mode==='signup'?`<div class="field"><label>Full Name</label><input required name="name" class="input" placeholder="Priya Nair"/></div>`:''}
-        <div class="field"><label>Email</label><input required type="email" name="email" class="input" placeholder="you@school.edu"/></div>
-        <div class="field"><label>Password</label><input required type="password" name="password" class="input" placeholder="••••••••"/></div>
-        ${mode==='signup'?`
-          <div class="field"><label>Organization Name</label><input required name="org" class="input" placeholder="Bengaluru Public School"/></div>
-          <div class="field"><label>Organization Type</label><select name="orgType" class="input" style="width:100%;">${orgTypes.map(t=>`<option>${t}</option>`).join('')}</select></div>
-        `:`<div class="auth-row"><label style="display:flex;align-items:center;gap:8px;white-space:nowrap;"><input type="checkbox" checked/> Remember me</label></div>`}
-        <button type="submit" class="btn btn-primary btn-lg" style="width:100%;margin-top:6px;">${mode==='login'?'Log In':'Create Account'}</button>
-        <div class="auth-divider"><span>or</span></div>
-        <button type="button" class="btn btn-outline btn-lg auth-google-btn" data-action="google-auth" style="width:100%;">
-          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.84 2.09-1.8 2.73v2.27h2.91c1.7-1.57 2.69-3.88 2.69-6.64z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.17l-2.91-2.27c-.81.54-1.84.86-3.05.86-2.35 0-4.34-1.58-5.05-3.71H.94v2.34C2.42 15.98 5.48 18 9 18z"/><path fill="#FBBC05" d="M3.95 10.71a5.4 5.4 0 010-3.42V4.95H.94a9 9 0 000 8.1l3.01-2.34z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0 5.48 0 2.42 2.02.94 4.95l3.01 2.34C4.66 5.16 6.65 3.58 9 3.58z"/></svg>
-          Continue with Google
-        </button>
+        <div class="auth-tabs" style="display:flex;gap:6px;margin-bottom:18px;">
+          <button type="button" class="btn btn-sm ${mode==='login'?'btn-ghost':'btn-subtle'}" data-action="switch-login">Log In</button>
+          <button type="button" class="btn btn-sm ${mode==='signup'?'btn-ghost':'btn-subtle'}" data-action="switch-signup">Sign Up</button>
+          <button type="button" class="btn btn-sm ${mode==='parent'?'btn-ghost':'btn-subtle'}" data-action="switch-parent">Parent Login</button>
+        </div>
+        <div class="auth-title">${title}</div>
+        <div class="auth-sub">${sub}</div>
+        ${mode==='parent' ? `
+          <div class="field"><label>Student ID</label><input required name="studentId" class="input" placeholder="e.g. S2451" autocomplete="off"/></div>
+          <div class="field"><label>Class</label><input required name="parentClass" class="input" placeholder="e.g. 10th" autocomplete="off"/></div>
+          <div class="field"><label>Section</label><input required name="parentSection" class="input" placeholder="e.g. A" autocomplete="off"/></div>
+          <div style="font-size:12px;color:var(--slate);margin:-6px 0 14px;">You can find these on the ID card or admission letter issued by the school.</div>
+          <button type="submit" class="btn btn-primary btn-lg" style="width:100%;margin-top:6px;">View Student Analysis</button>
+        ` : `
+          ${mode==='signup'?`<div class="field"><label>Full Name</label><input required name="name" class="input" placeholder="Priya Nair"/></div>`:''}
+          <div class="field"><label>Email</label><input required type="email" name="email" class="input" placeholder="you@school.edu"/></div>
+          <div class="field"><label>Password</label><input required type="password" name="password" class="input" placeholder="••••••••"/></div>
+          ${mode==='signup'?`
+            <div class="field"><label>Organization Name</label><input required name="org" class="input" placeholder="Bengaluru Public School"/></div>
+            <div class="field"><label>Organization Type</label><select name="orgType" class="input" style="width:100%;">${orgTypes.map(t=>`<option>${t}</option>`).join('')}</select></div>
+          `:`<div class="auth-row"><label style="display:flex;align-items:center;gap:8px;white-space:nowrap;"><input type="checkbox" checked/> Remember me</label></div>`}
+          <button type="submit" class="btn btn-primary btn-lg" style="width:100%;margin-top:6px;">${mode==='login'?'Log In':'Create Account'}</button>
+          <div class="auth-divider"><span>or</span></div>
+          <button type="button" class="btn btn-outline btn-lg auth-google-btn" data-action="google-auth" style="width:100%;">
+            <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.84 2.09-1.8 2.73v2.27h2.91c1.7-1.57 2.69-3.88 2.69-6.64z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.17l-2.91-2.27c-.81.54-1.84.86-3.05.86-2.35 0-4.34-1.58-5.05-3.71H.94v2.34C2.42 15.98 5.48 18 9 18z"/><path fill="#FBBC05" d="M3.95 10.71a5.4 5.4 0 010-3.42V4.95H.94a9 9 0 000 8.1l3.01-2.34z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0 5.48 0 2.42 2.02.94 4.95l3.01 2.34C4.66 5.16 6.65 3.58 9 3.58z"/></svg>
+            Continue with Google
+          </button>
+        `}
         <div class="auth-switch">
-          ${mode==='login'?`Don't have an account? <button type="button" data-action="switch-signup">Sign up</button>`:`Already have an account? <button type="button" data-action="switch-login">Log in</button>`}
+          ${mode==='parent' ? `Not a parent? <button type="button" data-action="switch-login">Staff login</button>` :
+            mode==='login'?`Don't have an account? <button type="button" data-action="switch-signup">Sign up</button>`:`Already have an account? <button type="button" data-action="switch-login">Log in</button>`}
         </div>
       </form>
     </div>
@@ -1859,9 +2009,65 @@ function attachAuthEvents(){
       };
     });
 
+  document.querySelectorAll('[data-action="switch-parent"]')
+    .forEach(b => {
+      b.onclick = () => {
+        pushNav();
+        state.authMode = 'parent';
+        render();
+      };
+    });
+
   const form = document.getElementById('auth-form');
 
   if(!form) return;
+
+  /* =========================================================
+     PARENT LOGIN — separate, much simpler flow: no email/
+     password, just Student ID + Class + Section (see
+     parentLogin() for how the match is found).
+     ========================================================= */
+  if(state.authMode === 'parent'){
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const studentId = String(fd.get('studentId')||'').trim();
+      const className = String(fd.get('parentClass')||'').trim();
+      const section = String(fd.get('parentSection')||'').trim();
+
+      const submitBtn = form.querySelector('button[type="submit"]');
+      if(submitBtn) submitBtn.disabled = true;
+
+      try{
+        const match = await parentLogin(studentId, className, section);
+
+        if(!match){
+          showToast("We couldn't find a student with that ID, Class and Section. Please check and try again.");
+          return;
+        }
+
+        resetSessionState();
+        state.parentSession = {
+          organizationId: match.organizationId,
+          studentId: match.student.id,
+          classId: match.cls.id,
+        };
+        state.parentData = { student: match.student, cls: match.cls, attendance: null, marks: null };
+
+        pushNav();
+        state.stage = 'parent';
+        render();
+        showToast(`Welcome — showing analysis for ${match.student.name}.`);
+
+      } catch(error){
+        console.error('Parent login failed:', error);
+        showToast(error.message && error.message.startsWith('Please') ? error.message : 'Something went wrong. Please try again.');
+      } finally {
+        if(submitBtn) submitBtn.disabled = false;
+      }
+    };
+    return;
+  }
 
   form.onsubmit = async (e) => {
 
@@ -3624,11 +3830,95 @@ function renderSettings(root){
 }
 
 /* ============================================================================
+   PARENT DASHBOARD (read-only, no admin nav — see parentLogin())
+============================================================================ */
+function renderParentShell(){
+  const pd = state.parentData;
+  const student = pd ? pd.student : {name:'Student'};
+  return `<div class="shell">
+    <div class="sidebar" style="display:flex;flex-direction:column;">
+      <div class="sidebar-logo">${logoHTML()}</div>
+      <div style="margin:0 0 18px;"><span class="badge" style="background:var(--blue-soft);color:var(--blue-deep);">${ic('users').replace('<svg','<svg style="width:12px;height:12px"')} Parent View</span></div>
+      <div class="nav-list"><button class="nav-item active">${ic('dash')} Dashboard</button></div>
+      <div class="user-chip" style="margin-top:auto;">
+        <div class="user-av">${initials(student.name)}</div>
+        <div class="user-meta"><div class="user-name">${student.name}</div><div class="user-role">Roll #${student.roll??'—'}</div></div>
+        <button data-action="logout" title="Log out">${ic('logout').replace('<svg','<svg style="width:15px;height:15px;color:var(--slate)"')}</button>
+      </div>
+    </div>
+    <div class="main">
+      <div class="topbar">
+        <div style="display:flex;align-items:center;gap:12px;font-weight:700;">Student Analysis</div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button class="btn btn-outline btn-sm" data-action="logout">${ic('logout').replace('<svg','<svg style="width:13px;height:13px"')} Log Out</button>
+        </div>
+      </div>
+      <div class="view" id="view-root"></div>
+    </div>
+  </div>`;
+}
+function attachParentShellEvents(){
+  document.querySelectorAll('[data-action="logout"]').forEach(b=>b.onclick=()=> logoutUser());
+  renderParentDashboard(document.getElementById('view-root'));
+}
+function renderParentDashboard(root){
+  const session = state.parentSession;
+  const pd = state.parentData;
+  if(!root || !session || !pd){ logoutUser(); return; }
+
+  const draw = (attendance, marks, loading)=>{
+    const present = attendance.filter(a=>a.status==='Present').length;
+    const absent = attendance.filter(a=>a.status==='Absent').length;
+    const late = attendance.filter(a=>a.status==='Late').length;
+    const total = attendance.length;
+    const pct = total ? Math.round(present/total*100) : 100;
+    const student = pd.student, cls = pd.cls;
+
+    root.innerHTML = `
+      <div class="card profile-head" style="margin-bottom:20px;">
+        <div class="profile-id">
+          <div class="profile-av">${initials(student.name)}</div>
+          <div><div class="profile-name">${student.name}</div><div class="profile-meta">Roll #${student.roll??'—'} · ${cls.name}${cls.section}${cls.subject?' — '+cls.subject:''}${student.email?' · '+student.email:''}</div></div>
+        </div>
+      </div>
+      <div class="grid-4" style="margin-bottom:20px;">
+        <div class="card statbox"><div class="n" style="color:${pct<75?T.red:T.mintDeep}">${loading?'…':pct+'%'}</div><div class="l">Attendance (all-time)</div></div>
+        <div class="card statbox"><div class="n" style="color:${T.mintDeep}">${loading?'…':present}</div><div class="l">Present Days</div></div>
+        <div class="card statbox"><div class="n" style="color:${T.red}">${loading?'…':absent}</div><div class="l">Absent Days</div></div>
+        <div class="card statbox"><div class="n" style="color:${T.amber}">${loading?'…':late}</div><div class="l">Late Days</div></div>
+      </div>
+      ${loading ? '' : renderStudentMarksAnalysis(student, marks)}
+      <div class="card" style="padding:22px;">
+        <div class="chart-title">Attendance History${total>20?` <span style="font-weight:500;color:var(--slate);font-size:12px;">(most recent 20 of ${total})</span>`:''}</div>
+        ${loading?`<div class="empty"><div class="empty-txt">Loading attendance history…</div></div>`:
+        attendance.length===0?`<div class="empty"><div class="empty-txt">No attendance recorded yet.</div></div>`:
+        attendance.slice(0,20).map(h=>`<div class="hist-row"><span>${prettyDate(h.date)} · ${h.subject||''}</span><span class="badge" style="background:${STATUS_META[h.status].bg};color:${STATUS_META[h.status].color}">${ic(STATUS_META[h.status].icon).replace('<svg','<svg style="width:12px;height:12px"')} ${h.status}</span></div>`).join('')}
+      </div>
+    `;
+  };
+
+  if(pd.attendance && pd.marks){ draw(pd.attendance, pd.marks, false); return; }
+
+  draw([], [], true);
+  fetchParentChildData(session.organizationId, session.studentId).then(({attendance, marks})=>{
+    if(!state.parentData) return;
+    state.parentData.attendance = attendance;
+    state.parentData.marks = marks;
+    if(state.stage==='parent') draw(attendance, marks, false);
+  }).catch(err=>{
+    console.error('Failed to load parent child data:', err);
+    if(state.stage==='parent') draw([], [], false);
+    showToast("Couldn't load the student's records. Please try again.");
+  });
+}
+
+/* ============================================================================
    LANDING/AUTH SHARED HANDLERS + KICKOFF
 ============================================================================ */
 document.addEventListener('click', (e)=>{
   const go = e.target.closest('[data-action="go-signup"]'); if(go){ pushNav(); state.authMode='signup'; state.stage='auth'; render(); return; }
   const goL = e.target.closest('[data-action="go-login"]'); if(goL){ pushNav(); state.authMode='login'; state.stage='auth'; render(); return; }
+  const goP = e.target.closest('[data-action="go-parent-login"]'); if(goP){ pushNav(); state.authMode='parent'; state.stage='auth'; render(); return; }
   const backB = e.target.closest('[data-action="go-back"]'); if(backB){ goBack(); return; }
   const faq = e.target.closest('[data-action="toggle-faq"]'); if(faq){ const idx=Number(faq.getAttribute('data-idx')); state.faqOpen = state.faqOpen===idx? -1: idx; render(); return; }
   const wrap = document.getElementById('global-search-wrap');
