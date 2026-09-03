@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="icon" type="image/png" href="logo.ico">
 <title>Attendo — Smart Attendance, Simple Roll Call</title>
@@ -470,6 +473,20 @@ tbody tr.clickable:hover{background:#FAFBFE;}
 <body>
 <div id="app"></div>
 <div id="toast"><div class="toast-tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div><div id="toast-msg"></div></div>
+<script>
+  // If this page is restored from the browser's back-forward cache (e.g.
+  // pressing Back after a Parent Login session), force a real reload so
+  // the app boots from scratch instead of silently showing a cached,
+  // stale view. Combined with the isAnonymous guard in onAuthStateChanged,
+  // this is what actually signs a parent's session back out and returns
+  // them to the landing page when they hit Back, rather than letting Back
+  // reveal their child's dashboard again after logout.
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) {
+      window.location.reload();
+    }
+  });
+</script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
   import {
@@ -1605,6 +1622,28 @@ function boot(){
 
       /*
        * ---------------------------------------------------------
+       * ANONYMOUS SESSION (Parent Login)
+       * ---------------------------------------------------------
+       * Anonymous auth is only ever used for Parent Login (see
+       * parentLogin()). A parent's session is intentionally
+       * single-visit: on a reload, a back-navigation, or any other
+       * moment this listener sees a persisted anonymous uid, sign it
+       * straight back out rather than resuming the dashboard — and
+       * definitely never auto-provision a brand new empty staff
+       * organization for that random uid (that was the "useless
+       * teacher's dashboard" bug). The resulting null-user event
+       * (this same listener, firing again) takes care of resetting
+       * state and rendering the landing page.
+       * ---------------------------------------------------------
+       */
+      if(user.isAnonymous){
+        await fb.signOut(fb.auth);
+        return;
+      }
+
+
+      /*
+       * ---------------------------------------------------------
        * USER LOGGED IN
        * ---------------------------------------------------------
        */
@@ -2038,11 +2077,25 @@ function attachAuthEvents(){
       const submitBtn = form.querySelector('button[type="submit"]');
       if(submitBtn) submitBtn.disabled = true;
 
+      // Signing in anonymously (inside parentLogin()) fires the global
+      // onAuthStateChanged listener in boot(). Without this flag it barges
+      // in mid-lookup, sees a brand-new anonymous uid with no admin
+      // profile, and auto-provisions/opens an empty STAFF dashboard for
+      // it — that's the "useless teacher's dashboard" flash bug. Holding
+      // authBusy keeps that listener out of the way until we've set
+      // state.stage ourselves.
+      state.authBusy = true;
+
       try{
         const match = await parentLogin(studentId, className, section);
 
         if(!match){
           showToast("We couldn't find a student with that ID, Class and Section. Please check and try again.");
+          // Nothing useful to do with an anonymous session that matched no
+          // student — drop it so it doesn't linger.
+          if(window.attendoFirebase.auth.currentUser){
+            await window.attendoFirebase.signOut(window.attendoFirebase.auth);
+          }
           return;
         }
 
@@ -2064,6 +2117,9 @@ function attachAuthEvents(){
         showToast(error.message && error.message.startsWith('Please') ? error.message : 'Something went wrong. Please try again.');
       } finally {
         if(submitBtn) submitBtn.disabled = false;
+        // Safe to let the listener resume watching now — state.stage is
+        // already settled either way.
+        state.authBusy = false;
       }
     };
     return;
