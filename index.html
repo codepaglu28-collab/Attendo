@@ -3892,7 +3892,7 @@ function renderParentShell(){
   const pd = state.parentData;
   const student = pd ? pd.student : {name:'Student'};
   return `<div class="shell">
-    <div class="sidebar" style="display:flex;flex-direction:column;">
+    <div class="sidebar">
       <div class="sidebar-logo">${logoHTML()}</div>
       <div style="margin:0 0 18px;"><span class="badge" style="background:var(--blue-soft);color:var(--blue-deep);">${ic('users').replace('<svg','<svg style="width:12px;height:12px"')} Parent View</span></div>
       <div class="nav-list"><button class="nav-item active">${ic('dash')} Dashboard</button></div>
@@ -3904,17 +3904,35 @@ function renderParentShell(){
     </div>
     <div class="main">
       <div class="topbar">
-        <div style="display:flex;align-items:center;gap:12px;font-weight:700;">Student Analysis</div>
+        <div style="display:flex;align-items:center;gap:10px;font-weight:700;">
+          <button class="hamburger" data-action="open-drawer">${ic('menu').replace('<svg','<svg style="width:20px;height:20px"')}</button>
+          <span>Student Analysis</span>
+        </div>
         <div style="display:flex;align-items:center;gap:12px;">
           <button class="btn btn-outline btn-sm" data-action="logout">${ic('logout').replace('<svg','<svg style="width:13px;height:13px"')} Log Out</button>
         </div>
       </div>
       <div class="view" id="view-root"></div>
     </div>
+    <div class="drawer-overlay" data-action="close-drawer"></div>
+    <div class="mobile-drawer">
+      <div class="sidebar-logo">${logoHTML()}</div>
+      <div style="margin:0 0 18px;"><span class="badge" style="background:var(--blue-soft);color:var(--blue-deep);">${ic('users').replace('<svg','<svg style="width:12px;height:12px"')} Parent View</span></div>
+      <div class="nav-list"><button class="nav-item active">${ic('dash')} Dashboard</button></div>
+      <div class="user-chip" style="margin-top:auto;">
+        <div class="user-av">${initials(student.name)}</div>
+        <div class="user-meta"><div class="user-name">${student.name}</div><div class="user-role">Roll #${student.roll??'—'}</div></div>
+        <button data-action="logout" title="Log out">${ic('logout').replace('<svg','<svg style="width:15px;height:15px;color:var(--slate)"')}</button>
+      </div>
+    </div>
   </div>`;
 }
 function attachParentShellEvents(){
   document.querySelectorAll('[data-action="logout"]').forEach(b=>b.onclick=()=> logoutUser());
+  const drawer = document.querySelector('.mobile-drawer');
+  const overlay = document.querySelector('.drawer-overlay');
+  document.querySelectorAll('[data-action="open-drawer"]').forEach(b=>b.onclick=()=>{ drawer.classList.add('open'); overlay.classList.add('open'); });
+  document.querySelectorAll('[data-action="close-drawer"]').forEach(b=>b.onclick=()=>{ drawer.classList.remove('open'); overlay.classList.remove('open'); });
   renderParentDashboard(document.getElementById('view-root'));
 }
 function renderParentDashboard(root){
