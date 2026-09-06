@@ -629,24 +629,46 @@ const todayStr = () => new Date().toISOString().slice(0,10);
 const todayWeekday = () => new Date().toLocaleDateString('en-US',{weekday:'short'});
 const prettyDate = iso => new Date(iso+"T00:00:00").toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
 const classNameOf = classId => { const c = (state.data.classes||[]).find(c=>c.id===classId); return c ? c.name : (classId || '—'); };
+const classGroupNameOf = classGroupId => { const g = (state.data.classGroups||[]).find(g=>g.id===classGroupId); return g ? `${g.name}${g.section}` : (classGroupId || '—'); };
 function initials(name){ return name.split(" ").map(x=>x[0]).join("").slice(0,2).toUpperCase(); }
 
 /*
  * ----------------------------------------------------------------------------
- * ENROLLMENTS — students <-> classes is many-to-many (a student attends
- * several subjects/classes), so class membership is NOT a field on the
- * student document. It's a lightweight link collection instead, keeping
- * exactly one permanent record per student no matter how many classes,
- * departments, or years they're enrolled across.
+ * CLASSES vs CLASS GROUPS
+ * ----------------------------------------------------------------------------
+ * "classGroups" is the thing an org creates first (e.g. "10th A") — students
+ * are enrolled into a class GROUP, once. "classes" (kept as the collection
+ * name for minimal disruption to existing data) are actually TIMETABLE
+ * PERIODS that live inside a class group (subject, teacher, room, time) —
+ * every period has a classGroupId pointing at its parent group.
+ *
+ * Enrollments link a student straight to a classGroupId, never to an
+ * individual period. That's what makes a new timetable period
+ * automatically include the whole class's roster the moment it's created,
+ * with no separate per-period enrollment step: rosterFor() below always
+ * resolves a period back to its group before looking up who's enrolled.
  * ----------------------------------------------------------------------------
  */
-function rosterFor(classId){
-  const enrolledIds = new Set((state.data.enrollments||[]).filter(e=>e.classId===classId).map(e=>e.studentId));
+function rosterFor(periodId){
+  const period = (state.data.classes||[]).find(c=>c.id===periodId);
+  // Falls back to treating the id as a group id directly, so this still
+  // works if ever called with a classGroupId instead of a period id.
+  const groupId = period ? period.classGroupId : periodId;
+  const enrolledIds = new Set((state.data.enrollments||[]).filter(e=>e.classGroupId===groupId).map(e=>e.studentId));
   return (state.data.students||[]).filter(s=>enrolledIds.has(s.id));
 }
 function classesForStudent(studentId){
-  const classIds = new Set((state.data.enrollments||[]).filter(e=>e.studentId===studentId).map(e=>e.classId));
-  return (state.data.classes||[]).filter(c=>classIds.has(c.id));
+  // Despite the name (kept for minimal disruption to existing callers),
+  // this returns the student's CLASS GROUPS — which is what almost every
+  // caller actually wants to display ("which class is this student in").
+  // For the literal list of timetable periods a student attends, see
+  // periodsForStudent() below.
+  const groupIds = new Set((state.data.enrollments||[]).filter(e=>e.studentId===studentId).map(e=>e.classGroupId));
+  return (state.data.classGroups||[]).filter(g=>groupIds.has(g.id));
+}
+function periodsForStudent(studentId){
+  const groupIds = new Set((state.data.enrollments||[]).filter(e=>e.studentId===studentId).map(e=>e.classGroupId));
+  return (state.data.classes||[]).filter(c=>groupIds.has(c.classGroupId));
 }
 function deptNameOf(departmentId){
   const d = (state.data.departments||[]).find(d=>d.id===departmentId);
@@ -780,6 +802,7 @@ async function loadData(){
         departments:[],
         students:[],
         classes:[],
+        classGroups:[],
         enrollments:[],
         attendance:{},
         marks:[]
@@ -799,6 +822,19 @@ async function loadData(){
     );
     const departments = [];
     departmentsSnap.forEach(docSnap => departments.push({ id: docSnap.id, ...docSnap.data() }));
+
+
+    /* ================================================================
+       CLASS GROUPS
+       The thing an organization creates first (e.g. "10th A") — bounded
+       (tens, not thousands, per org), safe to load in full.
+    ================================================================= */
+
+    const classGroupsSnap = await fb.getDocs(
+      fb.collection(fb.db, 'organizations', organizationId, 'classGroups')
+    );
+    const classGroups = [];
+    classGroupsSnap.forEach(docSnap => classGroups.push({ id: docSnap.id, ...docSnap.data() }));
 
 
     /* ================================================================
@@ -957,6 +993,8 @@ async function loadData(){
 
       classes,
 
+      classGroups,
+
       enrollments,
 
       attendance,
@@ -1052,7 +1090,7 @@ async function persist(data){
     }
 
     const organizationId = getOrganizationId();
-    const prev = state._firestoreCache || { students:[], classes:[], departments:[], enrollments:[], attendance:{}, marks:[], org:{} };
+    const prev = state._firestoreCache || { students:[], classes:[], classGroups:[], departments:[], enrollments:[], attendance:{}, marks:[], org:{} };
 
     const ops = [];
 
@@ -1125,7 +1163,32 @@ async function persist(data){
 
 
     /* ================================================================
-       CLASSES
+       CLASS GROUPS
+       The org-level "Class" (e.g. "10th A") that timetable periods and
+       student enrollments both hang off of.
+    ================================================================= */
+
+    const classGroupsCollection = fb.collection(fb.db, 'organizations', organizationId, 'classGroups');
+    const prevClassGroups = new Map((prev.classGroups || []).map(g => [g.id, g]));
+    const nextClassGroups = new Map((data.classGroups || []).map(g => [g.id, g]));
+
+    for(const id of prevClassGroups.keys()){
+      if(!nextClassGroups.has(id)){
+        const ref = fb.doc(classGroupsCollection, id);
+        ops.push(batch => batch.delete(ref));
+      }
+    }
+    for(const [id, grp] of nextClassGroups){
+      if(!_recEqual(grp, prevClassGroups.get(id))){
+        const { id: _drop, ...grpData } = grp;
+        const ref = fb.doc(classGroupsCollection, id);
+        ops.push(batch => batch.set(ref, grpData, { merge:true }));
+      }
+    }
+
+
+    /* ================================================================
+       CLASSES (timetable periods — each belongs to a classGroupId)
     ================================================================= */
 
     const classesCollection = fb.collection(fb.db, 'organizations', organizationId, 'classes');
@@ -1370,11 +1433,11 @@ async function fetchStudentAttendanceHistory(studentId){
         (it's just the matched document's path).
    IMPORTANT — Firestore security rules must be configured to allow this:
    an authenticated (incl. anonymous) user needs read access to the
-   'students', 'classes', 'enrollments', 'attendanceRecords' and 'marks'
-   collections scoped this way. See the rules note further down this file
-   for a starting point, and tighten it before relying on this in
-   production (e.g. move the matching into a Cloud Function so a parent
-   session is never handed a broad collectionGroup read).
+   'students', 'classGroups', 'classes', 'enrollments', 'attendanceRecords'
+   and 'marks' collections scoped this way. See the rules note further
+   down this file for a starting point, and tighten it before relying on
+   this in production (e.g. move the matching into a Cloud Function so a
+   parent session is never handed a broad collectionGroup read).
 --------------------------------------------------------------------------- */
 const _norm = s => String(s||'').trim().toLowerCase();
 
@@ -1404,23 +1467,27 @@ async function parentLogin(studentIdRaw, classNameRaw, sectionRaw){
     const organizationId = studentDoc.ref.parent.parent.id;
     const student = { id: studentDoc.id, ...studentDoc.data() };
 
-    const classesSnap = await fb.getDocs(
-      fb.collection(fb.db, 'organizations', organizationId, 'classes')
+    // "Class" here means a classGroup (e.g. "10th A") — the thing a
+    // student is actually enrolled in. Individual timetable periods
+    // (subject/teacher/time) live one level below and aren't what a
+    // parent is expected to know.
+    const groupsSnap = await fb.getDocs(
+      fb.collection(fb.db, 'organizations', organizationId, 'classGroups')
     );
-    const matchedClass = classesSnap.docs
+    const matchedGroup = groupsSnap.docs
       .map(d=>({ id:d.id, ...d.data() }))
-      .find(c => _norm(c.name)===wantClass && _norm(c.section)===wantSection);
+      .find(g => _norm(g.name)===wantClass && _norm(g.section)===wantSection);
 
-    if(!matchedClass) continue;
+    if(!matchedGroup) continue;
 
     const enrollSnap = await fb.getDocs(fb.query(
       fb.collection(fb.db, 'organizations', organizationId, 'enrollments'),
       fb.where('studentId', '==', studentId),
-      fb.where('classId', '==', matchedClass.id)
+      fb.where('classGroupId', '==', matchedGroup.id)
     ));
     if(enrollSnap.empty) continue;
 
-    return { organizationId, student, cls: matchedClass };
+    return { organizationId, student, cls: matchedGroup };
   }
 
   return null;
@@ -1441,6 +1508,8 @@ async function fetchParentChildData(organizationId, studentId){
       fb.collection(fb.db, 'organizations', organizationId, 'marks'),
       fb.where('studentId', '==', studentId)
     )),
+    // Timetable periods — used below only to look up a mark's subject
+    // when the mark itself doesn't have one recorded directly.
     fb.getDocs(fb.collection(fb.db, 'organizations', organizationId, 'classes')),
   ]);
 
@@ -1738,6 +1807,7 @@ function boot(){
 
           students:[],
           classes:[],
+          classGroups:[],
           departments:[],
           enrollments:[],
           attendance:{},
@@ -2103,7 +2173,7 @@ function attachAuthEvents(){
         state.parentSession = {
           organizationId: match.organizationId,
           studentId: match.student.id,
-          classId: match.cls.id,
+          classGroupId: match.cls.id,
         };
         state.parentData = { student: match.student, cls: match.cls, attendance: null, marks: null };
 
@@ -2232,6 +2302,7 @@ function attachAuthEvents(){
     },
     students:[],
     classes:[],
+    classGroups:[],
     departments:[],
     enrollments:[],
     attendance:{},
@@ -2366,6 +2437,7 @@ function attachAuthEvents(){
             },
             students:[],
             classes:[],
+            classGroups:[],
             departments:[],
             enrollments:[],
             attendance:{},
@@ -2438,7 +2510,7 @@ const NAV_ITEMS = [
   {id:'dashboard', label:'Dashboard', icon:'dash'},
   {id:'rollcall', label:'Take Attendance', icon:'clipboard'},
   {id:'students', label:'Students', icon:'users'},
-  {id:'classes', label:'Timetable', icon:'school'},
+  {id:'classes', label:'Class', icon:'school'},
   {id:'marks', label:'Marks', icon:'bar'},
   {id:'history', label:'History', icon:'calendar'},
   {id:'settings', label:'Settings', icon:'settings'},
@@ -2613,7 +2685,7 @@ function renderDashboard(root){
 
   root.innerHTML = `
     <div class="dash-head">
-      <div><h1>Good morning 👋</h1><p>Here's what's happening across your organization today.</p></div>
+            <div><h1>${(()=>{const h=new Date().getHours();return h<12?'Good morning 👋':h<18?'Good afternoon 👋':'Good evening 👋';})()}</h1><p>Here's what's happening across your organization today.</p></div>
       <button class="btn btn-primary" data-action="nav" data-view="rollcall">${ic('clipboard')} Take Attendance</button>
     </div>
     <div class="grid-4" style="margin-bottom:20px;">
@@ -2645,14 +2717,14 @@ function renderDashboard(root){
     <div style="margin-top:24px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
         <div class="chart-title" style="margin-bottom:0;">Today's Classes</div>
-        ${allClasses.length>0?`<button class="btn btn-sm btn-outline" data-action="nav" data-view="classes">${ic('plus')} Manage Timetable</button>`:''}
+        ${allClasses.length>0?`<button class="btn btn-sm btn-outline" data-action="nav" data-view="classes">${ic('plus')} Manage Classes</button>`:''}
       </div>
       ${allClasses.length===0?`
         <div class="card" style="padding:40px;">
           <div class="empty">
             <div class="empty-ic">${ic('calendar').replace('<svg','<svg style="width:20px;height:20px;color:var(--slate)"')}</div>
-            <div class="empty-txt">No timetable set up yet. Add your classes and schedule to start taking attendance.</div>
-            <button class="btn btn-primary" data-action="nav" data-view="classes">${ic('plus')} Add Timetable</button>
+            <div class="empty-txt">No classes set up yet. Add a class to start taking attendance.</div>
+            <button class="btn btn-primary" data-action="nav" data-view="classes">${ic('plus')} Add Class</button>
           </div>
         </div>
       `: todaysClasses.length===0 ? `
@@ -2660,7 +2732,7 @@ function renderDashboard(root){
           <div class="empty">
             <div class="empty-ic">${ic('calendar').replace('<svg','<svg style="width:20px;height:20px;color:var(--slate)"')}</div>
             <div class="empty-txt">No classes scheduled for today (${wd}).</div>
-            <button class="btn btn-outline" data-action="nav" data-view="classes">${ic('plus')} Manage Timetable</button>
+            <button class="btn btn-outline" data-action="nav" data-view="classes">${ic('plus')} Manage Classes</button>
           </div>
         </div>
       `: `<div class="grid-2">
@@ -2702,8 +2774,8 @@ function renderRollCall(root){
   if(classes.length===0){
     root.innerHTML = `<div class="card" style="padding:48px;"><div class="empty">
       <div class="empty-ic">${ic('calendar').replace('<svg','<svg style="width:20px;height:20px;color:var(--slate)"')}</div>
-      <div class="empty-txt">You need a timetable before you can take attendance.</div>
-      <button class="btn btn-primary" data-action="nav" data-view="classes">${ic('plus')} Add Timetable</button>
+      <div class="empty-txt">You need a class set up before you can take attendance.</div>
+      <button class="btn btn-primary" data-action="nav" data-view="classes">${ic('plus')} Add Class</button>
     </div></div>`;
     document.querySelectorAll('[data-action="nav"]').forEach(b=>b.onclick=()=>{ pushNav(); state.view=b.getAttribute('data-view'); render(); });
     return;
@@ -2810,7 +2882,7 @@ function renderRollCall(root){
 function renderQuickRoll(){
   const data = state.data;
   const classes = data.classes || [];
-  if(classes.length===0) return `<div class="qr-overlay"><div class="qr-top"><button class="qr-exit" data-action="qr-exit">${ic('arrowLeft')} Back</button></div><div class="qr-body"><div style="color:#fff;font-weight:600;">No timetable set up yet.</div><div style="color:rgba(255,255,255,.5);font-size:13.5px;margin-top:8px;">Add a class first to take attendance.</div></div></div>`;
+  if(classes.length===0) return `<div class="qr-overlay"><div class="qr-top"><button class="qr-exit" data-action="qr-exit">${ic('arrowLeft')} Back</button></div><div class="qr-body"><div style="color:#fff;font-weight:600;">No classes set up yet.</div><div style="color:rgba(255,255,255,.5);font-size:13.5px;margin-top:8px;">Add a class first to take attendance.</div></div></div>`;
   const cls = classes.find(c=>c.id===state.activeClass) || classes[0];
   const roster = rosterFor(cls.id).sort((a,b)=>a.roll-b.roll);
   const date = todayStr(), key = `${date}|${cls.id}`;
@@ -2893,14 +2965,14 @@ function renderStudents(root){
   const search = state._stuSearch || '', classFilter = state._stuClassFilter || 'All', deptFilter = state._stuDeptFilter || 'All';
   const filtered = data.students.filter(s=>{
     if(deptFilter!=='All' && s.departmentId!==deptFilter) return false;
-    if(classFilter!=='All' && !(state.data.enrollments||[]).some(e=>e.studentId===s.id && e.classId===classFilter)) return false;
+    if(classFilter!=='All' && !(state.data.enrollments||[]).some(e=>e.studentId===s.id && e.classGroupId===classFilter)) return false;
     if(search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.id.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
   root.innerHTML = `
     <div class="page-head">
-      <div><h1>Students</h1><p>${data.students.length} students across ${(data.departments||[]).length} departments · ${(data.classes||[]).length} classes</p></div>
+      <div><h1>Students</h1><p>${data.students.length} students across ${(data.departments||[]).length} departments · ${(data.classGroups||[]).length} classes</p></div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-outline" id="stu-export">${ic('download')} Export</button>
         <button class="btn btn-primary" id="stu-add">${ic('plus')} Add Student</button>
@@ -2914,7 +2986,7 @@ function renderStudents(root){
       </select>
       <select id="stu-class-filter" class="input">
         <option value="All" ${classFilter==='All'?'selected':''}>All Classes</option>
-        ${(data.classes||[]).map(c=>`<option value="${c.id}" ${classFilter===c.id?'selected':''}>${c.name}${c.section}</option>`).join('')}
+        ${(data.classGroups||[]).map(g=>`<option value="${g.id}" ${classFilter===g.id?'selected':''}>${g.name}${g.section}</option>`).join('')}
       </select>
     </div>
     <div class="card table-wrap">
@@ -2962,11 +3034,11 @@ function renderStudents(root){
 
 function openStudentModal(studentId, presetClassId){
   const data = state.data;
-  const classes = data.classes || [];
+  const classGroups = data.classGroups || [];
   const departments = data.departments || [];
-  if(classes.length===0){ showToast('Add a class to your timetable first'); state.view='classes'; render(); return; }
+  if(classGroups.length===0){ showToast('Add a class first'); state.view='classes'; render(); return; }
   const student = studentId ? data.students.find(s=>s.id===studentId) : null;
-  const enrolledClassIds = new Set(student ? classesForStudent(student.id).map(c=>c.id) : (presetClassId && classes.some(c=>c.id===presetClassId) ? [presetClassId] : []));
+  const enrolledGroupIds = new Set(student ? classesForStudent(student.id).map(g=>g.id) : (presetClassId && classGroups.some(g=>g.id===presetClassId) ? [presetClassId] : []));
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `<div class="card modal">
@@ -2978,12 +3050,13 @@ function openStudentModal(studentId, presetClassId){
         <div class="field"><label>Department</label><select name="departmentId" class="input" style="width:100%;"><option value="">— None —</option>${departments.map(d=>`<option value="${d.id}" ${student&&student.departmentId===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
       </div>
       <div class="field">
-        <label>Enrolled Classes / Subjects</label>
+        <label>Class</label>
         <div style="display:flex;flex-direction:column;gap:6px;max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:12px;padding:10px 12px;">
-          ${classes.map(c=>`<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;">
-            <input type="checkbox" name="classIds" value="${c.id}" ${enrolledClassIds.has(c.id)?'checked':''}/> ${c.subject} — ${c.name}${c.section}
+          ${classGroups.map(g=>`<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;">
+            <input type="checkbox" name="classGroupIds" value="${g.id}" ${enrolledGroupIds.has(g.id)?'checked':''}/> ${g.name}${g.section}
           </label>`).join('')}
         </div>
+        <div style="font-size:11.5px;color:var(--slate);margin-top:6px;">Selecting a class enrolls this student in every timetable period scheduled under it.</div>
       </div>
       <div class="field"><label>Email</label><input required type="email" name="email" class="input" value="${student?student.email:''}"/></div>
       <div class="field"><label>Phone</label><input name="phone" class="input" value="${student?student.phone||'':''}"/></div>
@@ -3001,7 +3074,7 @@ function openStudentModal(studentId, presetClassId){
   overlay.querySelector('#student-form').onsubmit = async (e)=>{
     e.preventDefault();
     const fd = new FormData(e.target);
-    const selectedClassIds = fd.getAll('classIds');
+    const selectedGroupIds = fd.getAll('classGroupIds');
     const payload = { name:fd.get('name'), roll:Number(fd.get('roll')), departmentId:fd.get('departmentId')||null, email:fd.get('email'), phone:fd.get('phone'), guardian:fd.get('guardian'), status:'Active', enrolled: student?student.enrolled:todayStr() };
     let studentId2;
     if(student){
@@ -3013,15 +3086,17 @@ function openStudentModal(studentId, presetClassId){
       data.students.push({ id: studentId2, ...payload });
       showToast('New student added');
     }
-    // Reconcile enrollments: add newly-checked classes, remove unchecked ones.
+    // Reconcile enrollments: add newly-checked class groups, remove
+    // unchecked ones. Enrolling in a group is what makes this student
+    // show up in every timetable period under it — see rosterFor().
     if(!data.enrollments) data.enrollments = [];
-    const existingForStudent = new Set(data.enrollments.filter(en=>en.studentId===studentId2).map(en=>en.classId));
-    for(const classId of selectedClassIds){
-      if(!existingForStudent.has(classId)){
-        data.enrollments.push({ id:`${classId}_${studentId2}`, studentId:studentId2, classId, departmentId: payload.departmentId, enrolledAt: todayStr() });
+    const existingForStudent = new Set(data.enrollments.filter(en=>en.studentId===studentId2).map(en=>en.classGroupId));
+    for(const classGroupId of selectedGroupIds){
+      if(!existingForStudent.has(classGroupId)){
+        data.enrollments.push({ id:`${classGroupId}_${studentId2}`, studentId:studentId2, classGroupId, departmentId: payload.departmentId, enrolledAt: todayStr() });
       }
     }
-    data.enrollments = data.enrollments.filter(en => en.studentId!==studentId2 || selectedClassIds.includes(en.classId));
+    data.enrollments = data.enrollments.filter(en => en.studentId!==studentId2 || selectedGroupIds.includes(en.classGroupId));
     await persist(data); close(); renderView();
   };
 }
@@ -3110,31 +3185,83 @@ function renderStudentProfile(root){
 /* ============================================================================
    CLASSES / TIMETABLE
 ============================================================================ */
+/* ============================================================================
+   CLASSES  (two levels: Class Groups list -> a group's Timetable periods)
+============================================================================ */
 function renderClasses(root){
+  if(state._classGroupDetail) return renderClassGroupDetail(root, state._classGroupDetail);
   const data = state.data;
-  const classes = data.classes || [];
+  const groups = data.classGroups || [];
   root.innerHTML = `
     <div class="page-head">
-      <div><h1>Timetable</h1><p>${classes.length} ${classes.length===1?'class':'classes'} scheduled this term.</p></div>
-      <button class="btn btn-primary" id="class-add">${ic('plus')} Add Class</button>
+      <div><h1>Classes</h1><p>${groups.length} ${groups.length===1?'class':'classes'} set up.</p></div>
+      <button class="btn btn-primary" id="classgroup-add">${ic('plus')} Add Class</button>
     </div>
-    ${classes.length===0?`
+    ${groups.length===0?`
       <div class="card" style="padding:48px;">
         <div class="empty">
-          <div class="empty-ic">${ic('calendar').replace('<svg','<svg style="width:20px;height:20px;color:var(--slate)"')}</div>
-          <div class="empty-txt">No timetable set up yet. Add a class with its subject, teacher, room, time and the days it runs.</div>
-          <button class="btn btn-primary" id="class-add-empty">${ic('plus')} Add Timetable</button>
+          <div class="empty-ic">${ic('school').replace('<svg','<svg style="width:20px;height:20px;color:var(--slate)"')}</div>
+          <div class="empty-txt">No classes yet. Add a class (e.g. "10th A"), then add its timetable periods inside it — every student you enroll in the class is automatically included in each period.</div>
+          <button class="btn btn-primary" id="classgroup-add-empty">${ic('plus')} Add Class</button>
         </div>
       </div>
     `:`<div class="grid-2">
-      ${classes.map(c=>{
-        const roster = rosterFor(c.id);
-        const days = c.days||[];
-        const deptLabel = deptNameOf(c.departmentId);
+      ${groups.map(g=>{
+        const periodCount = (data.classes||[]).filter(c=>c.classGroupId===g.id).length;
+        const roster = rosterFor(g.id);
+        const deptLabel = deptNameOf(g.departmentId);
         return `<div class="card card-hover class-card">
           <div class="class-card-top">
-            <div><h3>${c.name}${c.section} — ${c.subject}</h3><div class="dept">${deptLabel}${deptLabel?' · ':''}${c.room||''}</div></div>
+            <div><h3>${g.name}${g.section}</h3><div class="dept">${deptLabel||'No department'}</div></div>
             <div class="class-ic">${ic('school').replace('<svg','<svg style="width:16px;height:16px;color:var(--blue-deep)"')}</div>
+          </div>
+          <div class="class-info">
+            <span>${ic('calendar').replace('<svg','<svg style="width:14px;height:14px;color:var(--slate)"')} ${periodCount} ${periodCount===1?'period':'periods'}</span>
+            <span>${ic('users').replace('<svg','<svg style="width:14px;height:14px;color:var(--slate)"')} ${roster.length} students</span>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-sm btn-primary" data-action="group-open" data-group="${g.id}">${ic('calendar')} View Timetable</button>
+            <button class="icon-btn" data-action="group-edit" data-group="${g.id}">${ic('edit').replace('<svg','<svg style="width:14px;height:14px;color:var(--slate)"')}</button>
+            <button class="icon-btn" data-action="group-delete" data-group="${g.id}">${ic('trash').replace('<svg','<svg style="width:14px;height:14px;color:'+T.red+'"')}</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`}
+  `;
+  document.querySelectorAll('[data-action="group-open"]').forEach(b=>b.onclick=()=>{ state._classGroupDetail = b.getAttribute('data-group'); renderView(); });
+  document.querySelectorAll('[data-action="group-edit"]').forEach(b=>b.onclick=()=> openClassGroupModal(b.getAttribute('data-group')));
+  document.querySelectorAll('[data-action="group-delete"]').forEach(b=>b.onclick=()=> deleteClassGroup(b.getAttribute('data-group')));
+  const addBtn = document.getElementById('classgroup-add'); if(addBtn) addBtn.onclick = ()=> openClassGroupModal(null);
+  const addBtnEmpty = document.getElementById('classgroup-add-empty'); if(addBtnEmpty) addBtnEmpty.onclick = ()=> openClassGroupModal(null);
+}
+
+function renderClassGroupDetail(root, groupId){
+  const data = state.data;
+  const group = (data.classGroups||[]).find(g=>g.id===groupId);
+  if(!group){ state._classGroupDetail = null; return renderClasses(root); }
+  const periods = (data.classes||[]).filter(c=>c.classGroupId===groupId);
+  const roster = rosterFor(groupId);
+  root.innerHTML = `
+    <button class="back-link" id="back-to-classgroups">${ic('arrowLeft')} Back to Classes</button>
+    <div class="page-head">
+      <div><h1>${group.name}${group.section}</h1><p>${roster.length} student${roster.length===1?'':'s'} · ${periods.length} timetable ${periods.length===1?'period':'periods'}.</p></div>
+      <button class="btn btn-primary" id="period-add">${ic('plus')} Add Timetable</button>
+    </div>
+    ${periods.length===0?`
+      <div class="card" style="padding:48px;">
+        <div class="empty">
+          <div class="empty-ic">${ic('calendar').replace('<svg','<svg style="width:20px;height:20px;color:var(--slate)"')}</div>
+          <div class="empty-txt">No timetable periods yet. Add a subject with its teacher, room, time and the days it runs — the ${roster.length} student${roster.length===1?'':'s'} already in ${group.name}${group.section} will be included automatically.</div>
+          <button class="btn btn-primary" id="period-add-empty">${ic('plus')} Add Timetable</button>
+        </div>
+      </div>
+    `:`<div class="grid-2">
+      ${periods.map(c=>{
+        const days = c.days||[];
+        return `<div class="card card-hover class-card">
+          <div class="class-card-top">
+            <div><h3>${c.subject}</h3><div class="dept">${c.room||'No room set'}</div></div>
+            <div class="class-ic">${ic('calendar').replace('<svg','<svg style="width:16px;height:16px;color:var(--blue-deep)"')}</div>
           </div>
           <div class="class-info">
             <span>${ic('grad').replace('<svg','<svg style="width:14px;height:14px;color:var(--slate)"')} ${c.teacher}</span>
@@ -3153,37 +3280,80 @@ function renderClasses(root){
       }).join('')}
     </div>`}
   `;
+  document.getElementById('back-to-classgroups').onclick = ()=>{ state._classGroupDetail = null; renderView(); };
   document.querySelectorAll('[data-action="class-take"]').forEach(b=>b.onclick=()=>{ pushNav(); state.activeClass=b.getAttribute('data-class'); state.view='rollcall'; render(); });
-  document.querySelectorAll('[data-action="class-edit"]').forEach(b=>b.onclick=()=> openClassModal(b.getAttribute('data-class')));
+  document.querySelectorAll('[data-action="class-edit"]').forEach(b=>b.onclick=()=> openClassModal(b.getAttribute('data-class'), groupId));
   document.querySelectorAll('[data-action="class-delete"]').forEach(b=>b.onclick=()=> deleteClass(b.getAttribute('data-class')));
-  const addBtn = document.getElementById('class-add'); if(addBtn) addBtn.onclick = ()=> openClassModal(null);
-  const addBtnEmpty = document.getElementById('class-add-empty'); if(addBtnEmpty) addBtnEmpty.onclick = ()=> openClassModal(null);
+  const addBtn = document.getElementById('period-add'); if(addBtn) addBtn.onclick = ()=> openClassModal(null, groupId);
+  const addBtnEmpty = document.getElementById('period-add-empty'); if(addBtnEmpty) addBtnEmpty.onclick = ()=> openClassModal(null, groupId);
 }
 
-function openClassModal(classId){
+function openClassGroupModal(groupId){
+  const data = state.data;
+  if(!data.classGroups) data.classGroups = [];
+  const departments = data.departments || [];
+  const group = groupId ? data.classGroups.find(g=>g.id===groupId) : null;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="card modal">
+    <div class="modal-head"><h3>${group?'Edit Class':'Add Class'}</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
+    <form id="classgroup-form">
+      <div class="modal-grid2">
+        <div class="field"><label>Class Name</label><input required name="name" class="input" placeholder="Class 12" value="${group?group.name:''}"/></div>
+        <div class="field"><label>Section</label><input required name="section" class="input" placeholder="A" value="${group?group.section:''}"/></div>
+      </div>
+      <div class="field"><label>Department</label><select name="departmentId" class="input" style="width:100%;">${departments.length===0?`<option value="">No departments yet — add one in Settings</option>`:`<option value="">— None —</option>${departments.map(d=>`<option value="${d.id}" ${group&&group.departmentId===d.id?'selected':''}>${d.name}</option>`).join('')}`}</select></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">${group?'Save Changes':'Add Class'}</button>
+      </div>
+    </form>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close = ()=> overlay.remove();
+  overlay.querySelector('#modal-close').onclick = close;
+  overlay.querySelector('#modal-cancel').onclick = close;
+  overlay.querySelector('#classgroup-form').onsubmit = async (e)=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = { name:fd.get('name'), section:fd.get('section'), departmentId:fd.get('departmentId')||null };
+    if(group){
+      Object.assign(group, payload);
+      // Timetable periods denormalize name/section/departmentId from
+      // their parent group for display (Roll Call, Marks, History all
+      // read c.name/c.section straight off the period) — keep them in
+      // sync so an edit here doesn't leave periods showing stale info.
+      (data.classes||[]).forEach(c=>{ if(c.classGroupId===group.id){ c.name=payload.name; c.section=payload.section; c.departmentId=payload.departmentId; } });
+      showToast('Class updated');
+    } else {
+      const id = `CG${Date.now().toString(36)}${Math.floor(Math.random()*900+100)}`;
+      data.classGroups.push({ id, ...payload });
+      state._classGroupDetail = id; // drop them straight into the new class so they can add its timetable
+      showToast('Class added — now add its timetable periods');
+    }
+    await persist(data); close(); renderView();
+  };
+}
+
+function openClassModal(classId, classGroupId){
   const data = state.data;
   if(!data.classes) data.classes = [];
-  const departments = data.departments || [];
   const cls = classId ? data.classes.find(c=>c.id===classId) : null;
+  const groupId = cls ? cls.classGroupId : classGroupId;
+  const group = (data.classGroups||[]).find(g=>g.id===groupId);
+  if(!group){ showToast('Add a class first'); return; }
   const selectedDays = new Set(cls ? (cls.days||[]) : ["Mon","Tue","Wed","Thu","Fri"]);
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `<div class="card modal">
-    <div class="modal-head"><h3>${cls?'Edit Class':'Add Class'}</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
+    <div class="modal-head"><h3>${cls?'Edit Timetable Period':'Add Timetable Period'} <span style="color:var(--slate);font-weight:600;font-size:13px;">— ${group.name}${group.section}</span></h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
     <form id="class-form">
-      <div class="modal-grid2">
-        <div class="field"><label>Class Name</label><input required name="name" class="input" placeholder="Class 12" value="${cls?cls.name:''}"/></div>
-        <div class="field"><label>Section</label><input required name="section" class="input" placeholder="A" value="${cls?cls.section:''}"/></div>
-      </div>
       <div class="field"><label>Subject</label><input required name="subject" class="input" placeholder="Physics" value="${cls?cls.subject:''}"/></div>
       <div class="modal-grid2">
         <div class="field"><label>Teacher</label><input required name="teacher" class="input" placeholder="Mr. Kumar" value="${cls?cls.teacher:''}"/></div>
         <div class="field"><label>Room</label><input name="room" class="input" placeholder="Room 204" value="${cls?cls.room||'':''}"/></div>
       </div>
-      <div class="modal-grid2">
-        <div class="field"><label>Department</label><select name="departmentId" class="input" style="width:100%;">${departments.length===0?`<option value="">No departments yet — add one in Settings</option>`:`<option value="">— None —</option>${departments.map(d=>`<option value="${d.id}" ${cls&&cls.departmentId===d.id?'selected':''}>${d.name}</option>`).join('')}`}</select></div>
-        <div class="field"><label>Time</label><input required name="time" type="time" class="input" value="${cls&&cls.time24?cls.time24:''}"/></div>
-      </div>
+      <div class="field"><label>Time</label><input required name="time" type="time" class="input" value="${cls&&cls.time24?cls.time24:''}"/></div>
       <div class="field">
         <label>Days</label>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -3194,7 +3364,7 @@ function openClassModal(classId){
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
-        <button type="submit" class="btn btn-primary">${cls?'Save Changes':'Add Class'}</button>
+        <button type="submit" class="btn btn-primary">${cls?'Save Changes':'Add to Timetable'}</button>
       </div>
     </form>
   </div>`;
@@ -3209,14 +3379,19 @@ function openClassModal(classId){
     if(days.length===0){ showToast('Select at least one day'); return; }
     const time24 = fd.get('time');
     const timeLabel = time24 ? formatTime12(time24) : '';
-    const payload = { name:fd.get('name'), section:fd.get('section'), subject:fd.get('subject'), teacher:fd.get('teacher'), room:fd.get('room'), departmentId:fd.get('departmentId')||null, time:timeLabel, time24, days };
+    // name/section/departmentId are denormalized straight from the parent
+    // class group — see openClassGroupModal() for why.
+    const payload = { classGroupId: groupId, name:group.name, section:group.section, subject:fd.get('subject'), teacher:fd.get('teacher'), room:fd.get('room'), departmentId:group.departmentId||null, time:timeLabel, time24, days };
     if(cls){
       Object.assign(cls, payload);
-      showToast('Class updated');
+      showToast('Timetable period updated');
     } else {
       const id = `CL${Date.now().toString(36)}${Math.floor(Math.random()*900+100)}`;
       data.classes.push({ id, ...payload });
-      showToast('Class added to timetable');
+      // No separate enrollment step needed here — rosterFor() resolves
+      // every period back to its classGroupId, so every student already
+      // enrolled in this class shows up in this new period immediately.
+      showToast(`Added to timetable — every student in ${group.name}${group.section} is included`);
     }
     await persist(data); close(); renderView();
   };
@@ -3228,12 +3403,24 @@ function formatTime12(hhmm){
   return `${h12}:${String(m).padStart(2,'0')} ${period}`;
 }
 async function deleteClass(classId){
-  if(!confirm('Delete this class? Its attendance history will remain but the class will no longer appear in your timetable, and students will be unenrolled from it.')) return;
+  if(!confirm('Delete this timetable period? Its attendance history will remain, but it will no longer appear in the timetable. Enrolled students stay in the class.')) return;
   const data = state.data;
   data.classes = (data.classes||[]).filter(c=>c.id!==classId);
-  data.enrollments = (data.enrollments||[]).filter(en=>en.classId!==classId);
   await persist(data);
-  showToast('Class removed from timetable');
+  showToast('Timetable period removed');
+  renderView();
+}
+async function deleteClassGroup(groupId){
+  const data = state.data;
+  const periods = (data.classes||[]).filter(c=>c.classGroupId===groupId);
+  const roster = rosterFor(groupId);
+  if(!confirm(`Delete this class? This removes its ${periods.length} timetable period${periods.length===1?'':'s'} and unenrolls ${roster.length} student${roster.length===1?'':'s'}. Attendance and marks history already recorded will remain. This cannot be undone.`)) return;
+  data.classGroups = (data.classGroups||[]).filter(g=>g.id!==groupId);
+  data.classes = (data.classes||[]).filter(c=>c.classGroupId!==groupId);
+  data.enrollments = (data.enrollments||[]).filter(en=>en.classGroupId!==groupId);
+  if(state._classGroupDetail===groupId) state._classGroupDetail = null;
+  await persist(data);
+  showToast('Class deleted');
   renderView();
 }
 
@@ -3499,7 +3686,7 @@ function openMarkModal(markId, presetStudentId, presetClassId){
   // itself, so look it up across every cache that could hold it.
   const mark = markId ? findMarkAnywhere(markId) : null;
   const defaultStudentId = mark ? mark.studentId : (presetStudentId || students[0].id);
-  const defaultClassId = mark ? mark.classId : (presetClassId || (classesForStudent(defaultStudentId)[0]||{}).id || (classes[0]||{}).id);
+  const defaultClassId = mark ? mark.classId : (presetClassId || (periodsForStudent(defaultStudentId)[0]||{}).id || (classes[0]||{}).id);
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -3567,7 +3754,7 @@ function openMarkModal(markId, presetStudentId, presetClassId){
     await persist(data); close(); renderView();
   };
   overlay.querySelector('[name="studentId"]').onchange = (e)=>{
-    const firstClass = classesForStudent(e.target.value)[0];
+    const firstClass = periodsForStudent(e.target.value)[0];
     if(firstClass){ const clsSel = overlay.querySelector('[name="classId"]'); if(clsSel) clsSel.value = firstClass.id; }
   };
 }
@@ -3872,6 +4059,7 @@ function renderSettings(root){
     const did = b.getAttribute('data-did');
     data.departments = data.departments.filter(d=>d.id!==did);
     (data.students||[]).forEach(s=>{ if(s.departmentId===did) s.departmentId = null; });
+    (data.classGroups||[]).forEach(g=>{ if(g.departmentId===did) g.departmentId = null; });
     (data.classes||[]).forEach(c=>{ if(c.departmentId===did) c.departmentId = null; });
     await persist(data); showToast('Department deleted'); renderSettings(root);
   });
