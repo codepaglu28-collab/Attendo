@@ -60,6 +60,7 @@ img{max-width:100%; display:block;}
 .btn-primary:hover{filter:brightness(1.06);}
 .btn-mint{background:linear-gradient(135deg,var(--mint),var(--mint-deep)); color:#fff; box-shadow:0 6px 16px -6px rgba(18,201,155,.5);}
 .btn-mint:hover{filter:brightness(1.06);}
+.new-badge{position:absolute; top:-8px; right:-8px; background:#EF5A5A; color:#fff; font-size:9.5px; font-weight:800; letter-spacing:.03em; padding:2px 6px; border-radius:999px; box-shadow:0 2px 6px rgba(0,0,0,.2); pointer-events:none;}
 .btn-outline{background:var(--surface); color:var(--navy); border:1px solid var(--border);}
 .btn-outline:hover{background:var(--surface-3);}
 .btn-ghost{background:var(--blue-soft); color:var(--blue-deep);}
@@ -1637,39 +1638,47 @@ function attendancePct(data, studentId){
    2+ STUDENTS within one class, or between 2+ whole CLASSES — shown as a
    chart on-screen and exportable as an editable .pptx
 ============================================================================ */
-function comparePictoStats(groupId, studentIds){
+function _inRange(dateStr, fromDate, toDate){
+  if(!dateStr) return true;
+  if(fromDate && dateStr < fromDate) return false;
+  if(toDate && dateStr > toDate) return false;
+  return true;
+}
+function comparePictoStats(groupId, studentIds, fromDate, toDate){
   const data = state.data;
   const periodIds = new Set((data.classes||[]).filter(c=>c.classGroupId===groupId).map(c=>c.id));
   return studentIds.map(sid=>{
     const student = (data.students||[]).find(s=>s.id===sid);
     let present=0, total=0;
     Object.entries(data.attendance||{}).forEach(([key,rec])=>{
-      const periodId = key.split('|')[1];
+      const [date, periodId] = key.split('|');
       if(!periodIds.has(periodId)) return;
+      if(!_inRange(date, fromDate, toDate)) return;
       const status = rec.records[sid];
       if(status){ total++; if(status==='Present') present++; }
     });
     const attendancePct = total ? Math.round(present/total*100) : 0;
-    const relevantMarks = (data.marks||[]).filter(m=>m.studentId===sid && periodIds.has(m.classId));
+    const relevantMarks = (data.marks||[]).filter(m=>m.studentId===sid && periodIds.has(m.classId) && _inRange(m.date, fromDate, toDate));
     const marksAvg = relevantMarks.length
       ? Math.round(relevantMarks.reduce((sum,m)=> sum + (m.maxMarks ? (m.marks/m.maxMarks*100) : 0), 0) / relevantMarks.length)
       : 0;
     return { id: sid, name: student?student.name:sid, attendancePct, marksAvg };
   });
 }
-function comparePictoClassStats(groupIds){
+function comparePictoClassStats(groupIds, fromDate, toDate){
   const data = state.data;
   return groupIds.map(gid=>{
     const group = (data.classGroups||[]).find(g=>g.id===gid);
     const periodIds = new Set((data.classes||[]).filter(c=>c.classGroupId===gid).map(c=>c.id));
     let present=0, total=0;
     Object.entries(data.attendance||{}).forEach(([key,rec])=>{
-      const periodId = key.split('|')[1];
+      const [date, periodId] = key.split('|');
       if(!periodIds.has(periodId)) return;
+      if(!_inRange(date, fromDate, toDate)) return;
       Object.values(rec.records).forEach(status=>{ total++; if(status==='Present') present++; });
     });
     const attendancePct = total ? Math.round(present/total*100) : 0;
-    const relevantMarks = (data.marks||[]).filter(m=>periodIds.has(m.classId));
+    const relevantMarks = (data.marks||[]).filter(m=>periodIds.has(m.classId) && _inRange(m.date, fromDate, toDate));
     const marksAvg = relevantMarks.length
       ? Math.round(relevantMarks.reduce((sum,m)=> sum + (m.maxMarks ? (m.marks/m.maxMarks*100) : 0), 0) / relevantMarks.length)
       : 0;
@@ -1687,12 +1696,20 @@ function openComparePictoModal(){
   let selectedStudentIds = new Set();
   let selectedClassIds = new Set(); // classes mode: which classes to compare
   let chartType = 'bar';
+  let fromDate = '';
+  let toDate = '';
   let showResults = false;
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `<div class="card modal modal-lg">
-    <div class="modal-head"><h3>Compare Picto</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
+    <div class="modal-head">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="btn btn-sm btn-outline" id="cp-back" style="display:none;gap:6px;">${ic('arrowLeft').replace('<svg','<svg style="width:13px;height:13px"')} Back</button>
+        <h3>Compare Picto</h3>
+      </div>
+      <button class="modal-close" id="modal-close">${ic('x')}</button>
+    </div>
     <div class="cp-body"></div>
   </div>`;
   document.body.appendChild(overlay);
@@ -1703,17 +1720,19 @@ function openComparePictoModal(){
     overlay.remove();
   };
   overlay.querySelector('#modal-close').onclick = close;
+  overlay.querySelector('#cp-back').onclick = ()=>{ showResults = false; renderBody(); };
 
   function currentStats(){
     return mode==='students'
-      ? comparePictoStats(selectedGroupId, [...selectedStudentIds])
-      : comparePictoClassStats([...selectedClassIds]);
+      ? comparePictoStats(selectedGroupId, [...selectedStudentIds], fromDate, toDate)
+      : comparePictoClassStats([...selectedClassIds], fromDate, toDate);
   }
   function readyToGenerate(){
     return mode==='students' ? selectedStudentIds.size>=2 : selectedClassIds.size>=2;
   }
 
   function renderBody(){
+    overlay.querySelector('#cp-back').style.display = showResults ? '' : 'none';
     const body = overlay.querySelector('.cp-body');
     const roster = (mode==='students' && selectedGroupId) ? rosterFor(selectedGroupId) : [];
     body.innerHTML = `
@@ -1758,6 +1777,13 @@ function openComparePictoModal(){
         </div>
       `}
       ${(mode==='classes' || (mode==='students' && selectedGroupId)) ? `
+        <div class="field">
+          <label>Date Range <span style="font-weight:500;color:var(--slate);">(leave blank for all-time)</span></label>
+          <div class="modal-grid2">
+            <input type="date" id="cp-from" class="input" value="${fromDate}" ${toDate?`max="${toDate}"`:''}/>
+            <input type="date" id="cp-to" class="input" value="${toDate}" min="${fromDate}"/>
+          </div>
+        </div>
         <div class="field">
           <label>Chart Type</label>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -1812,6 +1838,10 @@ function openComparePictoModal(){
     overlay.querySelectorAll('input[name="cp-chart-type"]').forEach(r=>{
       r.onchange = (e)=>{ chartType = e.target.value; if(showResults){ showResults=false; } renderBody(); };
     });
+    const fromInput = overlay.querySelector('#cp-from');
+    if(fromInput) fromInput.onchange = (e)=>{ fromDate = e.target.value; showResults=false; renderBody(); };
+    const toInput = overlay.querySelector('#cp-to');
+    if(toInput) toInput.onchange = (e)=>{ toDate = e.target.value; showResults=false; renderBody(); };
     const genBtn = overlay.querySelector('#cp-generate');
     if(genBtn) genBtn.onclick = ()=>{
       if(!readyToGenerate()){ showToast(mode==='students' ? 'Select at least 2 students to compare' : 'Select at least 2 classes to compare'); return; }
@@ -1820,9 +1850,10 @@ function openComparePictoModal(){
     };
     const exportBtn = overlay.querySelector('#cp-export');
     if(exportBtn) exportBtn.onclick = ()=>{
-      const subtitle = mode==='students'
+      const dateRangeLabel = (fromDate||toDate) ? ` (${fromDate||'start'} to ${toDate||'now'})` : '';
+      const subtitle = (mode==='students'
         ? `${(groups.find(g=>g.id===selectedGroupId)||{}).name||''}${(groups.find(g=>g.id===selectedGroupId)||{}).section||''} — Student Comparison`
-        : 'Class Comparison';
+        : 'Class Comparison') + dateRangeLabel;
       exportComparePictoPPT(currentStats(), subtitle, chartType);
     };
   }
@@ -2938,7 +2969,10 @@ function renderDashboard(root){
     <div class="dash-head">
       <div><h1>${(()=>{const h=new Date().getHours();return h<12?'Good morning 👋':h<17?'Good afternoon 👋':'Good evening 👋';})()}</h1><p>Here's what's happening across your organization today.</p></div>
       <div style="display:flex;gap:10px;">
-        <button class="btn btn-outline" id="compare-picto-btn">${ic('bar')} Compare Picto</button>
+        <div style="position:relative;">
+          <button class="btn btn-mint" id="compare-picto-btn">${ic('bar')} Compare Picto</button>
+          <span class="new-badge">NEW</span>
+        </div>
         <button class="btn btn-primary" data-action="nav" data-view="rollcall">${ic('clipboard')} Take Attendance</button>
       </div>
     </div>
