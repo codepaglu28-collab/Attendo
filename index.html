@@ -369,6 +369,8 @@ tbody tr.clickable:hover{background:#FAFBFE;}
 /* ============================= MODAL ============================= */
 .modal-overlay{position:fixed; inset:0; z-index:600; background:rgba(11,30,61,.4); display:flex; align-items:center; justify-content:center; padding:16px;}
 .modal{width:100%; max-width:420px; max-height:90vh; overflow-y:auto; padding:24px;}
+.modal-lg{max-width:720px;}
+@media(max-width:640px){ .modal-lg{max-width:100%;} }
 .modal-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;}
 .modal-head h3{font-size:17px; font-weight:800;}
 .modal-close{background:none;}
@@ -570,6 +572,7 @@ tbody tr.clickable:hover{background:#FAFBFE;}
   }
 </script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 <script>
 /* ============================================================================
    ICONS (minimal inline SVG set, stroke-based, mirrors lucide style)
@@ -1630,6 +1633,255 @@ function attendancePct(data, studentId){
 }
 
 /* ============================================================================
+   COMPARE PICTO — compare attendance % and marks average, either between
+   2+ STUDENTS within one class, or between 2+ whole CLASSES — shown as a
+   chart on-screen and exportable as an editable .pptx
+============================================================================ */
+function comparePictoStats(groupId, studentIds){
+  const data = state.data;
+  const periodIds = new Set((data.classes||[]).filter(c=>c.classGroupId===groupId).map(c=>c.id));
+  return studentIds.map(sid=>{
+    const student = (data.students||[]).find(s=>s.id===sid);
+    let present=0, total=0;
+    Object.entries(data.attendance||{}).forEach(([key,rec])=>{
+      const periodId = key.split('|')[1];
+      if(!periodIds.has(periodId)) return;
+      const status = rec.records[sid];
+      if(status){ total++; if(status==='Present') present++; }
+    });
+    const attendancePct = total ? Math.round(present/total*100) : 0;
+    const relevantMarks = (data.marks||[]).filter(m=>m.studentId===sid && periodIds.has(m.classId));
+    const marksAvg = relevantMarks.length
+      ? Math.round(relevantMarks.reduce((sum,m)=> sum + (m.maxMarks ? (m.marks/m.maxMarks*100) : 0), 0) / relevantMarks.length)
+      : 0;
+    return { id: sid, name: student?student.name:sid, attendancePct, marksAvg };
+  });
+}
+function comparePictoClassStats(groupIds){
+  const data = state.data;
+  return groupIds.map(gid=>{
+    const group = (data.classGroups||[]).find(g=>g.id===gid);
+    const periodIds = new Set((data.classes||[]).filter(c=>c.classGroupId===gid).map(c=>c.id));
+    let present=0, total=0;
+    Object.entries(data.attendance||{}).forEach(([key,rec])=>{
+      const periodId = key.split('|')[1];
+      if(!periodIds.has(periodId)) return;
+      Object.values(rec.records).forEach(status=>{ total++; if(status==='Present') present++; });
+    });
+    const attendancePct = total ? Math.round(present/total*100) : 0;
+    const relevantMarks = (data.marks||[]).filter(m=>periodIds.has(m.classId));
+    const marksAvg = relevantMarks.length
+      ? Math.round(relevantMarks.reduce((sum,m)=> sum + (m.maxMarks ? (m.marks/m.maxMarks*100) : 0), 0) / relevantMarks.length)
+      : 0;
+    return { id: gid, name: group?`${group.name}${group.section}`:gid, attendancePct, marksAvg };
+  });
+}
+
+function openComparePictoModal(){
+  const data = state.data;
+  const groups = data.classGroups || [];
+  if(groups.length===0){ showToast('Add a class first'); return; }
+
+  let mode = 'students'; // 'students' (within one class) or 'classes' (whole classes vs each other)
+  let selectedGroupId = '';       // students mode: which class to pick students from
+  let selectedStudentIds = new Set();
+  let selectedClassIds = new Set(); // classes mode: which classes to compare
+  let chartType = 'bar';
+  let showResults = false;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="card modal modal-lg">
+    <div class="modal-head"><h3>Compare Picto</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
+    <div class="cp-body"></div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  const close = ()=>{
+    if(state.charts.cp1){ state.charts.cp1.destroy(); state.charts.cp1=null; }
+    if(state.charts.cp2){ state.charts.cp2.destroy(); state.charts.cp2=null; }
+    overlay.remove();
+  };
+  overlay.querySelector('#modal-close').onclick = close;
+
+  function currentStats(){
+    return mode==='students'
+      ? comparePictoStats(selectedGroupId, [...selectedStudentIds])
+      : comparePictoClassStats([...selectedClassIds]);
+  }
+  function readyToGenerate(){
+    return mode==='students' ? selectedStudentIds.size>=2 : selectedClassIds.size>=2;
+  }
+
+  function renderBody(){
+    const body = overlay.querySelector('.cp-body');
+    const roster = (mode==='students' && selectedGroupId) ? rosterFor(selectedGroupId) : [];
+    body.innerHTML = `
+      <div class="field">
+        <label>Compare</label>
+        <div style="display:flex;gap:8px;">
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;background:${mode==='students'?'var(--blue-soft)':'#F4F7FC'};font-size:13px;font-weight:600;cursor:pointer;">
+            <input type="radio" name="cp-mode" value="students" ${mode==='students'?'checked':''}/> Students in a Class
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;background:${mode==='classes'?'var(--blue-soft)':'#F4F7FC'};font-size:13px;font-weight:600;cursor:pointer;">
+            <input type="radio" name="cp-mode" value="classes" ${mode==='classes'?'checked':''}/> Whole Classes
+          </label>
+        </div>
+      </div>
+      ${mode==='students' ? `
+        <div class="field">
+          <label>Class</label>
+          <select id="cp-group" class="input" style="width:100%;">
+            <option value="">Select a class…</option>
+            ${groups.map(g=>`<option value="${g.id}" ${selectedGroupId===g.id?'selected':''}>${g.name}${g.section}</option>`).join('')}
+          </select>
+        </div>
+        ${selectedGroupId ? `
+          <div class="field">
+            <label>Students <span style="font-weight:500;color:var(--slate);">(pick 2 or more)</span></label>
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:12px;padding:10px 12px;">
+              ${roster.length===0?`<div style="font-size:13px;color:var(--slate);">No students enrolled in this class yet.</div>`:
+              roster.map(s=>`<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;">
+                <input type="checkbox" class="cp-student" value="${s.id}" ${selectedStudentIds.has(s.id)?'checked':''}/> ${s.name} <span style="color:var(--slate);">Roll #${s.roll}</span>
+              </label>`).join('')}
+            </div>
+          </div>
+        `:''}
+      ` : `
+        <div class="field">
+          <label>Classes <span style="font-weight:500;color:var(--slate);">(pick 2 or more)</span></label>
+          <div style="display:flex;flex-direction:column;gap:6px;max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:12px;padding:10px 12px;">
+            ${groups.map(g=>`<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;">
+              <input type="checkbox" class="cp-class" value="${g.id}" ${selectedClassIds.has(g.id)?'checked':''}/> ${g.name}${g.section}
+            </label>`).join('')}
+          </div>
+        </div>
+      `}
+      ${(mode==='classes' || (mode==='students' && selectedGroupId)) ? `
+        <div class="field">
+          <label>Chart Type</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${['pie','line','bar'].map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;background:${chartType===t?'var(--blue-soft)':'#F4F7FC'};font-size:13px;font-weight:600;cursor:pointer;">
+              <input type="radio" name="cp-chart-type" value="${t}" ${chartType===t?'checked':''}/> ${t[0].toUpperCase()+t.slice(1)} Chart
+            </label>`).join('')}
+          </div>
+        </div>
+        <button class="btn btn-primary" id="cp-generate" style="width:100%;margin-top:6px;" ${readyToGenerate()?'':'disabled'}>${ic('bar')} Generate Comparison</button>
+      `:''}
+      ${showResults ? `
+        <div class="card" style="padding:18px;margin-top:18px;">
+          <div class="chart-title">Attendance % Comparison</div>
+          <div style="height:240px;"><canvas id="cp-chart-1"></canvas></div>
+        </div>
+        <div class="card" style="padding:18px;margin-top:14px;">
+          <div class="chart-title">Marks Average Comparison</div>
+          <div style="height:240px;"><canvas id="cp-chart-2"></canvas></div>
+        </div>
+        <button class="btn btn-outline" id="cp-export" style="width:100%;margin-top:14px;">${ic('download')} Export as PPT</button>
+      `:''}
+    `;
+    wire();
+    if(showResults) drawCharts();
+  }
+
+  function wire(){
+    overlay.querySelectorAll('input[name="cp-mode"]').forEach(r=>{
+      r.onchange = (e)=>{
+        mode = e.target.value;
+        selectedGroupId = ''; selectedStudentIds = new Set(); selectedClassIds = new Set();
+        showResults = false;
+        renderBody();
+      };
+    });
+    const groupSel = overlay.querySelector('#cp-group');
+    if(groupSel) groupSel.onchange = (e)=>{ selectedGroupId = e.target.value; selectedStudentIds = new Set(); showResults=false; renderBody(); };
+    overlay.querySelectorAll('.cp-student').forEach(cb=>{
+      cb.onchange = (e)=>{
+        if(e.target.checked) selectedStudentIds.add(e.target.value); else selectedStudentIds.delete(e.target.value);
+        showResults = false;
+        renderBody();
+      };
+    });
+    overlay.querySelectorAll('.cp-class').forEach(cb=>{
+      cb.onchange = (e)=>{
+        if(e.target.checked) selectedClassIds.add(e.target.value); else selectedClassIds.delete(e.target.value);
+        showResults = false;
+        renderBody();
+      };
+    });
+    overlay.querySelectorAll('input[name="cp-chart-type"]').forEach(r=>{
+      r.onchange = (e)=>{ chartType = e.target.value; if(showResults){ showResults=false; } renderBody(); };
+    });
+    const genBtn = overlay.querySelector('#cp-generate');
+    if(genBtn) genBtn.onclick = ()=>{
+      if(!readyToGenerate()){ showToast(mode==='students' ? 'Select at least 2 students to compare' : 'Select at least 2 classes to compare'); return; }
+      showResults = true;
+      renderBody();
+    };
+    const exportBtn = overlay.querySelector('#cp-export');
+    if(exportBtn) exportBtn.onclick = ()=>{
+      const subtitle = mode==='students'
+        ? `${(groups.find(g=>g.id===selectedGroupId)||{}).name||''}${(groups.find(g=>g.id===selectedGroupId)||{}).section||''} — Student Comparison`
+        : 'Class Comparison';
+      exportComparePictoPPT(currentStats(), subtitle, chartType);
+    };
+  }
+
+  function drawCharts(){
+    const stats = currentStats();
+    const labels = stats.map(s=>s.name);
+    const palette = [T.blue, T.mintDeep, T.amber, T.red, '#9B59B6', '#16A085'];
+
+    if(state.charts.cp1) state.charts.cp1.destroy();
+    if(state.charts.cp2) state.charts.cp2.destroy();
+
+    const ctx1 = document.getElementById('cp-chart-1');
+    const ctx2 = document.getElementById('cp-chart-2');
+    if(!ctx1 || !ctx2) return;
+
+    if(chartType==='pie'){
+      state.charts.cp1 = new Chart(ctx1, { type:'pie', data:{ labels, datasets:[{ data: stats.map(s=>s.attendancePct), backgroundColor: labels.map((_,i)=>palette[i%palette.length]) }] }, options:{ plugins:{legend:{position:'bottom'}} } });
+      state.charts.cp2 = new Chart(ctx2, { type:'pie', data:{ labels, datasets:[{ data: stats.map(s=>s.marksAvg), backgroundColor: labels.map((_,i)=>palette[i%palette.length]) }] }, options:{ plugins:{legend:{position:'bottom'}} } });
+    } else {
+      const type = chartType==='line'?'line':'bar';
+      state.charts.cp1 = new Chart(ctx1, { type, data:{ labels, datasets:[{ label:'Attendance %', data: stats.map(s=>s.attendancePct), backgroundColor: T.blue, borderColor: T.blue, tension:.35 }] }, options:{ plugins:{legend:{display:false}}, scales:{ y:{min:0,max:100} } } });
+      state.charts.cp2 = new Chart(ctx2, { type, data:{ labels, datasets:[{ label:'Marks Average %', data: stats.map(s=>s.marksAvg), backgroundColor: T.mintDeep, borderColor: T.mintDeep, tension:.35 }] }, options:{ plugins:{legend:{display:false}}, scales:{ y:{min:0,max:100} } } });
+    }
+  }
+
+  renderBody();
+}
+
+async function exportComparePictoPPT(stats, subtitle, chartType){
+  if(typeof PptxGenJS === 'undefined'){ showToast("Couldn't load the PowerPoint export library — check your connection and try again."); return; }
+
+  const pptx = new PptxGenJS();
+  pptx.defineLayout({ name:'ATTENDO', width:10, height:5.63 });
+  pptx.layout = 'ATTENDO';
+
+  const titleSlide = pptx.addSlide();
+  titleSlide.addText('Compare Picto', { x:0.5, y:1.5, w:9, h:1, fontSize:36, bold:true, color:'0B1E3D' });
+  titleSlide.addText(subtitle, { x:0.5, y:2.4, w:9, h:0.6, fontSize:18, color:'5B6B85' });
+  titleSlide.addText(stats.map(s=>s.name).join(', '), { x:0.5, y:3.0, w:9, h:0.5, fontSize:13, color:'5B6B85' });
+
+  const pptxType = chartType==='pie' ? pptx.ChartType.pie : chartType==='line' ? pptx.ChartType.line : pptx.ChartType.bar;
+  const chartColors = ['2B6CF6','15C39A','F5A524','E5484D','9B59B6','16A085'];
+
+  const attSlide = pptx.addSlide();
+  attSlide.addText('Attendance % Comparison', { x:0.4, y:0.3, w:9, h:0.5, fontSize:22, bold:true, color:'0B1E3D' });
+  attSlide.addChart(pptxType, [{ name:'Attendance %', labels: stats.map(s=>s.name), values: stats.map(s=>s.attendancePct) }], { x:0.6, y:1.0, w:8.8, h:4.3, showLegend:true, legendPos:'b', showValue:true, chartColors });
+
+  const marksSlide = pptx.addSlide();
+  marksSlide.addText('Marks Average % Comparison', { x:0.4, y:0.3, w:9, h:0.5, fontSize:22, bold:true, color:'0B1E3D' });
+  marksSlide.addChart(pptxType, [{ name:'Marks Average %', labels: stats.map(s=>s.name), values: stats.map(s=>s.marksAvg) }], { x:0.6, y:1.0, w:8.8, h:4.3, showLegend:true, legendPos:'b', showValue:true, chartColors });
+
+  const filename = `Compare_Picto_${subtitle.replace(/[^a-zA-Z0-9]+/g,'_')}.pptx`;
+  await pptx.writeFile({ fileName: filename });
+  showToast('PowerPoint exported');
+}
+
+
+/* ============================================================================
    BOOT
 ============================================================================ */
 
@@ -2556,7 +2808,6 @@ function renderShell(){
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:16px;">
-          <div class="bell-wrap">${ic('bell').replace('<svg','<svg style="width:19px;height:19px;color:var(--slate)"')}<div class="bell-dot">2</div></div>
           <div class="user-av" style="width:30px;height:30px;font-size:11px;">${initials(u.name)}</div>
         </div>
       </div>
@@ -2685,8 +2936,11 @@ function renderDashboard(root){
 
   root.innerHTML = `
     <div class="dash-head">
-            <div><h1>${(()=>{const h=new Date().getHours();return h<12?'Good morning 👋':h<18?'Good afternoon 👋':'Good evening 👋';})()}</h1><p>Here's what's happening across your organization today.</p></div>
-      <button class="btn btn-primary" data-action="nav" data-view="rollcall">${ic('clipboard')} Take Attendance</button>
+      <div><h1>${(()=>{const h=new Date().getHours();return h<12?'Good morning 👋':h<17?'Good afternoon 👋':'Good evening 👋';})()}</h1><p>Here's what's happening across your organization today.</p></div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-outline" id="compare-picto-btn">${ic('bar')} Compare Picto</button>
+        <button class="btn btn-primary" data-action="nav" data-view="rollcall">${ic('clipboard')} Take Attendance</button>
+      </div>
     </div>
     <div class="grid-4" style="margin-bottom:20px;">
       ${cards.map(c=>`<div class="card card-hover stat-card">
@@ -2756,6 +3010,8 @@ function renderDashboard(root){
   `;
   document.querySelectorAll('[data-action="nav"]').forEach(b=>b.onclick=()=>{ pushNav(); state.view=b.getAttribute('data-view'); render(); });
   document.querySelectorAll('[data-action="goto-rollcall"]').forEach(b=>b.onclick=()=>{ pushNav(); state.activeClass=b.getAttribute('data-class'); state.view='rollcall'; render(); });
+  const cmpBtn = document.getElementById('compare-picto-btn');
+  if(cmpBtn) cmpBtn.onclick = ()=> openComparePictoModal();
 
   if(weekVals.length){
     const ctx = document.getElementById('week-chart');
