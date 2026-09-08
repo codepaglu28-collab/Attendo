@@ -3523,7 +3523,7 @@ function renderClasses(root){
       }).join('')}
     </div>`}
   `;
-  document.querySelectorAll('[data-action="group-open"]').forEach(b=>b.onclick=()=>{ state._classGroupDetail = b.getAttribute('data-group'); renderView(); });
+  document.querySelectorAll('[data-action="group-open"]').forEach(b=>b.onclick=()=>{ state._classGroupDetail = b.getAttribute('data-group'); state._classDayFilter = null; renderView(); });
   document.querySelectorAll('[data-action="group-edit"]').forEach(b=>b.onclick=()=> openClassGroupModal(b.getAttribute('data-group')));
   document.querySelectorAll('[data-action="group-delete"]').forEach(b=>b.onclick=()=> deleteClassGroup(b.getAttribute('data-group')));
   const addBtn = document.getElementById('classgroup-add'); if(addBtn) addBtn.onclick = ()=> openClassGroupModal(null);
@@ -3534,20 +3534,27 @@ function renderClassGroupDetail(root, groupId){
   const data = state.data;
   const group = (data.classGroups||[]).find(g=>g.id===groupId);
   if(!group){ state._classGroupDetail = null; return renderClasses(root); }
-  const periods = (data.classes||[]).filter(c=>c.classGroupId===groupId);
+  const allPeriods = (data.classes||[]).filter(c=>c.classGroupId===groupId);
+  const dayFilter = state._classDayFilter || null;
+  const periods = dayFilter ? allPeriods.filter(c=>(c.days||[]).includes(dayFilter)) : allPeriods;
   const roster = rosterFor(groupId);
   root.innerHTML = `
     <button class="back-link" id="back-to-classgroups">${ic('arrowLeft')} Back to Classes</button>
     <div class="page-head">
-      <div><h1>${group.name}${group.section}</h1><p>${roster.length} student${roster.length===1?'':'s'} · ${periods.length} timetable ${periods.length===1?'period':'periods'}.</p></div>
+      <div><h1>${group.name}${group.section}</h1><p>${roster.length} student${roster.length===1?'':'s'} · ${allPeriods.length} timetable ${allPeriods.length===1?'period':'periods'}.</p></div>
       <button class="btn btn-primary" id="period-add">${ic('plus')} Add Timetable</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:18px;">
+      <span style="font-size:12px;font-weight:600;color:var(--slate);margin-right:2px;">Day:</span>
+      ${WEEKDAYS.map(w=>`<button class="btn btn-sm" data-action="day-filter" data-day="${w}" title="${w}" style="width:34px;padding:7px 0;${dayFilter===w?'background:var(--blue);color:#fff;':'background:var(--surface-3);color:var(--navy);'}">${w[0]}</button>`).join('')}
+      ${dayFilter?`<button class="btn btn-sm btn-outline" id="day-filter-clear" style="margin-left:4px;">Clear</button>`:''}
     </div>
     ${periods.length===0?`
       <div class="card" style="padding:48px;">
         <div class="empty">
           <div class="empty-ic">${ic('calendar').replace('<svg','<svg style="width:20px;height:20px;color:var(--slate)"')}</div>
-          <div class="empty-txt">No timetable periods yet. Add a subject with its teacher, room, time and the days it runs — the ${roster.length} student${roster.length===1?'':'s'} already in ${group.name}${group.section} will be included automatically.</div>
-          <button class="btn btn-primary" id="period-add-empty">${ic('plus')} Add Timetable</button>
+          <div class="empty-txt">${dayFilter?`No timetable periods run on ${dayFilter}.`:`No timetable periods yet. Add a subject with its teacher, room, time and the days it runs — the ${roster.length} student${roster.length===1?'':'s'} already in ${group.name}${group.section} will be included automatically.`}</div>
+          ${dayFilter?'':`<button class="btn btn-primary" id="period-add-empty">${ic('plus')} Add Timetable</button>`}
         </div>
       </div>
     `:`<div class="grid-2">
@@ -3575,7 +3582,13 @@ function renderClassGroupDetail(root, groupId){
       }).join('')}
     </div>`}
   `;
-  document.getElementById('back-to-classgroups').onclick = ()=>{ state._classGroupDetail = null; renderView(); };
+  document.getElementById('back-to-classgroups').onclick = ()=>{ state._classGroupDetail = null; state._classDayFilter = null; renderView(); };
+  document.querySelectorAll('[data-action="day-filter"]').forEach(b=>b.onclick=()=>{
+    const day = b.getAttribute('data-day');
+    state._classDayFilter = (state._classDayFilter===day) ? null : day;
+    renderClassGroupDetail(root, groupId);
+  });
+  const dayClearBtn = document.getElementById('day-filter-clear'); if(dayClearBtn) dayClearBtn.onclick = ()=>{ state._classDayFilter = null; renderClassGroupDetail(root, groupId); };
   document.querySelectorAll('[data-action="class-take"]').forEach(b=>b.onclick=()=>{ pushNav(); state.activeClass=b.getAttribute('data-class'); state.view='rollcall'; render(); });
   document.querySelectorAll('[data-action="class-edit"]').forEach(b=>b.onclick=()=> openClassModal(b.getAttribute('data-class'), groupId));
   document.querySelectorAll('[data-action="class-delete"]').forEach(b=>b.onclick=()=> deleteClass(b.getAttribute('data-class')));
