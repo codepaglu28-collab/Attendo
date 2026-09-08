@@ -3253,10 +3253,13 @@ function renderStudents(root){
   const data = state.data;
   if(state._studentProfile){ return renderStudentProfile(root); }
   const search = state._stuSearch || '', classFilter = state._stuClassFilter || 'All', deptFilter = state._stuDeptFilter || 'All';
+  const minOnly = !!state._stuMinOnly;
+  const minPct = data.org.minAttendancePct ?? 75;
   const filtered = data.students.filter(s=>{
     if(deptFilter!=='All' && s.departmentId!==deptFilter) return false;
     if(classFilter!=='All' && !(state.data.enrollments||[]).some(e=>e.studentId===s.id && e.classGroupId===classFilter)) return false;
     if(search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.id.toLowerCase().includes(search.toLowerCase())) return false;
+    if(minOnly && attendancePct(data, s.id) >= minPct) return false;
     return true;
   });
 
@@ -3278,6 +3281,7 @@ function renderStudents(root){
         <option value="All" ${classFilter==='All'?'selected':''}>All Classes</option>
         ${(data.classGroups||[]).map(g=>`<option value="${g.id}" ${classFilter===g.id?'selected':''}>${g.name}${g.section}</option>`).join('')}
       </select>
+      <button class="btn btn-sm" id="stu-min-toggle" title="Show only students below ${minPct}% attendance" style="background:${minOnly?T.red:'var(--red-soft)'};color:${minOnly?'#fff':T.red};">${ic('alert').replace('<svg','<svg style="width:13px;height:13px"')} Min</button>
     </div>
     <div class="card table-wrap">
       <table>
@@ -3310,6 +3314,7 @@ function renderStudents(root){
   document.getElementById('stu-search').oninput = (e)=>{ state._stuSearch=e.target.value; renderStudents(root); document.getElementById('stu-search').focus(); document.getElementById('stu-search').setSelectionRange(999,999); };
   document.getElementById('stu-class-filter').onchange = (e)=>{ state._stuClassFilter=e.target.value; renderStudents(root); };
   document.getElementById('stu-dept-filter').onchange = (e)=>{ state._stuDeptFilter=e.target.value; renderStudents(root); };
+  document.getElementById('stu-min-toggle').onclick = ()=>{ state._stuMinOnly = !state._stuMinOnly; renderStudents(root); };
   document.getElementById('stu-add').onclick = ()=> openStudentModal(null, classFilter!=='All' ? classFilter : null);
   document.getElementById('stu-export').onclick = ()=>{
     const rows=[["Student ID","Roll","Name","Email","Department","Classes","Status"], ...filtered.map(s=>[s.id,s.roll,s.name,s.email,deptNameOf(s.departmentId),classesForStudent(s.id).map(c=>`${c.name}${c.section}`).join('; '),s.status])];
@@ -4078,6 +4083,9 @@ function renderHistory(root){
   const from = state._histFrom || defaultFrom;
   const to = state._histTo || today;
 
+  const minOnly = !!state._histMinOnly;
+  const minPct = data.org.minAttendancePct ?? 75;
+
   const buildRows = (sessions)=>{
     const rows = [];
     Object.values(sessions).forEach(rec=>{
@@ -4085,16 +4093,32 @@ function renderHistory(root){
       const clsObj = (data.classes||[]).find(c=>c.id===rec.classId);
       const clsLabel = clsObj ? `${clsObj.name}${clsObj.section||''}` : (rec.classId||'—');
       Object.entries(rec.records).forEach(([sid,status])=>{
-        if(statusFilter!=='All' && status!==statusFilter) return;
         const student = data.students.find(s=>s.id===sid); if(!student) return;
-        rows.push({date:rec.date, student:student.name, cls:clsLabel, subject:rec.subject, status});
+        rows.push({date:rec.date, sid, student:student.name, cls:clsLabel, subject:rec.subject, status});
       });
     });
     rows.sort((a,b)=>b.date.localeCompare(a.date));
     return rows;
   };
 
-  const draw = (rows, loading)=>{
+  const draw = (allRows, loading)=>{
+    // Per-student attendance % across the currently selected date range + class
+    // filter (independent of the status filter/dropdown), used to power "Min".
+    const pctByStudent = {};
+    if(!loading){
+      const totals = {};
+      allRows.forEach(r=>{
+        if(!totals[r.sid]) totals[r.sid] = {present:0, total:0};
+        totals[r.sid].total++;
+        if(r.status==='Present') totals[r.sid].present++;
+      });
+      Object.entries(totals).forEach(([sid,t])=>{ pctByStudent[sid] = t.total ? Math.round(t.present/t.total*100) : 100; });
+    }
+
+    let rows = allRows;
+    if(statusFilter!=='All') rows = rows.filter(r=>r.status===statusFilter);
+    if(minOnly) rows = rows.filter(r=>(pctByStudent[r.sid] ?? 100) < minPct);
+
     const shown = rows.slice(0,500);
     root.innerHTML = `
       <div class="page-head"><h1>Attendance History</h1><button class="btn btn-outline" id="hist-export" ${loading?'disabled':''}>${ic('download')} Export CSV</button></div>
@@ -4103,13 +4127,14 @@ function renderHistory(root){
         <div class="field" style="margin:0;"><label style="font-size:11.5px;">To</label><input type="date" id="hist-to" class="input" value="${to}" max="${today}"/></div>
         <select id="hist-class" class="input"><option value="All" ${classFilter==='All'?'selected':''}>All Classes</option>${(data.classes||[]).map(c=>`<option value="${c.id}" ${classFilter===c.id?'selected':''}>${c.name}${c.section}</option>`).join('')}</select>
         <select id="hist-status" class="input"><option value="All" ${statusFilter==='All'?'selected':''}>All Statuses</option>${STATUSES.map(s=>`<option ${statusFilter===s?'selected':''}>${s}</option>`).join('')}</select>
+        <button class="btn btn-sm" id="hist-min-toggle" title="Show only students below ${minPct}% attendance" style="background:${minOnly?T.red:'var(--red-soft)'};color:${minOnly?'#fff':T.red};">${ic('alert').replace('<svg','<svg style="width:13px;height:13px"')} Min</button>
       </div>
       <div class="card table-wrap" style="max-height:520px;overflow-y:auto;">
         <table>
           <thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Subject</th><th>Status</th></tr></thead>
           <tbody>
             ${loading?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">Loading attendance for ${prettyDate(from)} – ${prettyDate(to)}…</div></div></td></tr>`:
-            shown.length===0?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">No attendance recorded in this range.</div></div></td></tr>`:
+            shown.length===0?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">${minOnly?`No students below ${minPct}% attendance in this range.`:'No attendance recorded in this range.'}</div></div></td></tr>`:
             shown.map(r=>`<tr><td>${prettyDate(r.date)}</td><td style="font-weight:600;">${r.student}</td><td style="color:var(--slate)">${r.cls}</td><td style="color:var(--slate)">${r.subject}</td><td><span class="badge" style="background:${STATUS_META[r.status].bg};color:${STATUS_META[r.status].color}">${ic(STATUS_META[r.status].icon).replace('<svg','<svg style="width:12px;height:12px"')} ${r.status}</span></td></tr>`).join('')}
           </tbody>
         </table>
@@ -4120,6 +4145,7 @@ function renderHistory(root){
     document.getElementById('hist-to').onchange = (e)=>{ state._histTo=e.target.value; renderHistory(root); };
     document.getElementById('hist-class').onchange = (e)=>{ state._histClass=e.target.value; renderHistory(root); };
     document.getElementById('hist-status').onchange = (e)=>{ state._histStatus=e.target.value; renderHistory(root); };
+    document.getElementById('hist-min-toggle').onclick = ()=>{ state._histMinOnly = !state._histMinOnly; renderHistory(root); };
     if(!loading){
       document.getElementById('hist-export').onclick = ()=>{
         const r=[["Date","Student","Class","Subject","Status"], ...rows.map(x=>[csvDateCell(x.date),x.student,x.cls,x.subject,x.status])];
@@ -4476,6 +4502,15 @@ document.addEventListener('click', (e)=>{
   const wrap = document.getElementById('global-search-wrap');
   const results = document.getElementById('global-search-results');
   if(wrap && results && !wrap.contains(e.target)){ results.classList.remove('open'); results.innerHTML=''; }
+});
+
+/* Close any open modal when clicking outside the dialog (on the dark backdrop) */
+document.addEventListener('mousedown', (e)=>{
+  if(e.target.classList && e.target.classList.contains('modal-overlay')){
+    const closeBtn = e.target.querySelector('#modal-close');
+    if(closeBtn) closeBtn.click();
+    else e.target.remove();
+  }
 });
 
 </script>
