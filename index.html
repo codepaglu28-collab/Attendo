@@ -515,6 +515,7 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     addDoc,
     updateDoc,
     deleteDoc,
+    deleteField,
     writeBatch,
     query,
     where,
@@ -558,6 +559,7 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     addDoc,
     updateDoc,
     deleteDoc,
+    deleteField,
     writeBatch,
     query,
     where,
@@ -1361,12 +1363,15 @@ async function saveAttendanceSession(cls, date, statusMap){
   const organizationId = getOrganizationId();
   const sessionId = `${date}|${cls.id}`;
 
+  // Note: teacher/department are deliberately NOT stored here — every
+  // reader (Roll Call, Dashboard, History, student profiles) already
+  // looks them up from the class/department docs via classId, so writing
+  // them again on every session/record doc would just be duplicate data
+  // that goes stale the moment a class's teacher or department changes.
   const sessionData = {
     classId: cls.id,
     date,
     subject: cls.subject,
-    teacher: cls.teacher,
-    departmentId: cls.departmentId || null,
     records: { ...statusMap }
   };
 
@@ -1379,8 +1384,7 @@ async function saveAttendanceSession(cls, date, statusMap){
     const recordId = `${date}|${cls.id}|${studentId}`;
     const ref = fb.doc(recordsCollection, recordId);
     ops.push(batch => batch.set(ref, {
-      studentId, classId: cls.id, departmentId: cls.departmentId || null,
-      subject: cls.subject, date, status
+      studentId, classId: cls.id, subject: cls.subject, date, status
     }, { merge:true }));
   }
 
@@ -1391,6 +1395,45 @@ async function saveAttendanceSession(cls, date, statusMap){
   if(state.data){
     state.data.attendance[sessionId] = sessionData;
     if(state._firestoreCache) state._firestoreCache.attendance[sessionId] = sessionData;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   DELETE A SINGLE ATTENDANCE RECORD (one student, one session)
+   ------------------------------------------------------------------------
+   Used by the History table's per-row delete button. This only removes
+   that one student's status for that one class/date — it never touches
+   the student's profile, other sessions, or any other student's record.
+
+   Two writes, same shape as the save path:
+     1. Remove `records.{studentId}` from the session doc (deleteField(),
+        so the rest of that day's session survives untouched).
+     2. Delete the matching attendanceRecords/{date}|{classId}|{studentId}
+        fan-out doc outright, since without a status it has no purpose.
+--------------------------------------------------------------------------- */
+async function deleteAttendanceRecord(date, classId, studentId){
+  const fb = window.attendoFirebase;
+  const user = fb.auth.currentUser;
+  if(!user) throw new Error("Cannot delete attendance record: no authenticated user.");
+
+  const organizationId = getOrganizationId();
+  const sessionId = `${date}|${classId}`;
+  const recordId = `${date}|${classId}|${studentId}`;
+
+  const sessionRef = fb.doc(fb.db, 'organizations', organizationId, 'attendanceSessions', sessionId);
+  const recordRef = fb.doc(fb.db, 'organizations', organizationId, 'attendanceRecords', recordId);
+
+  await fb.updateDoc(sessionRef, { [`records.${studentId}`]: fb.deleteField() });
+  await fb.deleteDoc(recordRef);
+
+  // Keep every in-memory copy in sync so the UI updates without a re-fetch.
+  [state.data, state._firestoreCache].forEach(d=>{
+    if(d && d.attendance && d.attendance[sessionId] && d.attendance[sessionId].records){
+      delete d.attendance[sessionId].records[studentId];
+    }
+  });
+  if(state._histCache && state._histCache.sessions && state._histCache.sessions[sessionId] && state._histCache.sessions[sessionId].records){
+    delete state._histCache.sessions[sessionId].records[studentId];
   }
 }
 
@@ -4107,7 +4150,7 @@ function renderHistory(root){
       const clsLabel = clsObj ? `${clsObj.name}${clsObj.section||''}` : (rec.classId||'—');
       Object.entries(rec.records).forEach(([sid,status])=>{
         const student = data.students.find(s=>s.id===sid); if(!student) return;
-        rows.push({date:rec.date, sid, student:student.name, cls:clsLabel, subject:rec.subject, status});
+        rows.push({date:rec.date, sid, student:student.name, classId:rec.classId, cls:clsLabel, subject:rec.subject, status});
       });
     });
     rows.sort((a,b)=>b.date.localeCompare(a.date));
@@ -4144,11 +4187,11 @@ function renderHistory(root){
       </div>
       <div class="card table-wrap" style="max-height:520px;overflow-y:auto;">
         <table>
-          <thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Subject</th><th>Status</th></tr></thead>
+          <thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Subject</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            ${loading?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">Loading attendance for ${prettyDate(from)} – ${prettyDate(to)}…</div></div></td></tr>`:
-            shown.length===0?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">${minOnly?`No students below ${minPct}% attendance in this range.`:'No attendance recorded in this range.'}</div></div></td></tr>`:
-            shown.map(r=>`<tr><td>${prettyDate(r.date)}</td><td style="font-weight:600;">${r.student}</td><td style="color:var(--slate)">${r.cls}</td><td style="color:var(--slate)">${r.subject}</td><td><span class="badge" style="background:${STATUS_META[r.status].bg};color:${STATUS_META[r.status].color}">${ic(STATUS_META[r.status].icon).replace('<svg','<svg style="width:12px;height:12px"')} ${r.status}</span></td></tr>`).join('')}
+            ${loading?`<tr><td colspan="6"><div class="empty"><div class="empty-txt">Loading attendance for ${prettyDate(from)} – ${prettyDate(to)}…</div></div></td></tr>`:
+            shown.length===0?`<tr><td colspan="6"><div class="empty"><div class="empty-txt">${minOnly?`No students below ${minPct}% attendance in this range.`:'No attendance recorded in this range.'}</div></div></td></tr>`:
+            shown.map(r=>`<tr><td>${prettyDate(r.date)}</td><td style="font-weight:600;">${r.student}</td><td style="color:var(--slate)">${r.cls}</td><td style="color:var(--slate)">${r.subject}</td><td><span class="badge" style="background:${STATUS_META[r.status].bg};color:${STATUS_META[r.status].color}">${ic(STATUS_META[r.status].icon).replace('<svg','<svg style="width:12px;height:12px"')} ${r.status}</span></td><td style="text-align:right;"><button class="icon-btn" data-action="hist-delete" data-date="${r.date}" data-class="${r.classId}" data-sid="${r.sid}" title="Delete this ${r.status.toLowerCase()} record for ${r.student} on ${prettyDate(r.date)} — does not affect their profile" style="color:${T.red};">${ic('trash').replace('<svg','<svg style="width:14px;height:14px"')}</button></td></tr>`).join('')}
           </tbody>
         </table>
       </div>
@@ -4159,6 +4202,21 @@ function renderHistory(root){
     document.getElementById('hist-class').onchange = (e)=>{ state._histClass=e.target.value; renderHistory(root); };
     document.getElementById('hist-status').onchange = (e)=>{ state._histStatus=e.target.value; renderHistory(root); };
     document.getElementById('hist-min-toggle').onclick = ()=>{ state._histMinOnly = !state._histMinOnly; renderHistory(root); };
+    document.querySelectorAll('[data-action="hist-delete"]').forEach(b=>b.onclick = async ()=>{
+      const rDate = b.getAttribute('data-date'), rClass = b.getAttribute('data-class'), rSid = b.getAttribute('data-sid');
+      const row = shown.find(x=>x.date===rDate && x.classId===rClass && x.sid===rSid);
+      if(!confirm(`Delete ${row?row.student:'this'}'s ${row?row.status.toLowerCase():''} record for ${prettyDate(rDate)}${row?` (${row.subject})`:''}? This only removes this one attendance record — the student's profile is not affected.`)) return;
+      b.disabled = true;
+      try{
+        await deleteAttendanceRecord(rDate, rClass, rSid);
+        showToast('Attendance record deleted');
+        renderHistory(root);
+      }catch(err){
+        console.error('Failed to delete attendance record:', err);
+        showToast('Could not delete — try again');
+        b.disabled = false;
+      }
+    });
     if(!loading){
       document.getElementById('hist-export').onclick = ()=>{
         const r=[["Date","Student","Class","Subject","Status"], ...rows.map(x=>[csvDateCell(x.date),x.student,x.cls,x.subject,x.status])];
@@ -4285,16 +4343,14 @@ async function runStructureMigration(){
       const cls = (data.classes||[]).find(c=>c.id===classId);
       const sessionRef = fb.doc(sessionsCollection, docSnap.id);
       ops.push(batch => batch.set(sessionRef, {
-        classId, date, subject: old.subject||(cls?cls.subject:''), teacher: old.teacher||(cls?cls.teacher:''),
-        departmentId: cls?cls.departmentId:null, records: old.records
+        classId, date, subject: old.subject||(cls?cls.subject:''), records: old.records
       }, { merge:true }));
       sessionsMigrated++;
       for(const [studentId, status] of Object.entries(old.records)){
         const recordId = `${date}|${classId}|${studentId}`;
         const ref = fb.doc(recordsCollection, recordId);
         ops.push(batch => batch.set(ref, {
-          studentId, classId, departmentId: cls?cls.departmentId:null,
-          subject: old.subject||(cls?cls.subject:''), date, status
+          studentId, classId, subject: old.subject||(cls?cls.subject:''), date, status
         }, { merge:true }));
         recordsMigrated++;
       }
