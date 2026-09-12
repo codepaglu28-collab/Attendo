@@ -505,8 +505,7 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     onAuthStateChanged,
     EmailAuthProvider,
     reauthenticateWithCredential,
-    updatePassword,
-    deleteUser
+    updatePassword
   } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
   import {
     getFirestore,
@@ -557,7 +556,6 @@ tbody tr.clickable:hover{background:#FAFBFE;}
     EmailAuthProvider,
     reauthenticateWithCredential,
     updatePassword,
-    deleteUser,
     doc,
     setDoc,
     getDoc,
@@ -793,61 +791,6 @@ async function changeOwnPassword(oldPassword, newPassword){
   const credential = fb.EmailAuthProvider.credential(user.email, oldPassword);
   await fb.reauthenticateWithCredential(user, credential); // throws if oldPassword is wrong
   await fb.updatePassword(user, newPassword);
-}
-
-/* --------------------------------------------------------------------------
-   DELETE ORGANIZATION ACCOUNT (Settings → Danger Zone)
-   ------------------------------------------------------------------------
-   Permanently wipes every Firestore document under organizations/{orgId}
-   (every subcollection this app ever writes to, listed below) plus the
-   org document itself, then deletes the Firebase Auth account. There is
-   no undo, which is why the caller requires the admin to correctly type
-   their email, password, AND the institution's exact name before this
-   runs — password is verified via reauthentication (so a wrong password
-   fails loudly instead of silently deleting anything).
---------------------------------------------------------------------------- */
-async function deleteOrganizationAccount(emailInput, password, institutionNameInput){
-  const fb = window.attendoFirebase;
-  const user = fb.auth.currentUser;
-  const data = state.data;
-  if(!user || !user.email) throw new Error('You must be signed in with an email account to delete your account.');
-
-  if(String(emailInput||'').trim().toLowerCase() !== String(user.email||'').trim().toLowerCase()){
-    throw new Error('Email does not match the signed-in account.');
-  }
-  if(String(institutionNameInput||'').trim() !== String(data.org?.name||'').trim()){
-    throw new Error('Institution name does not match exactly.');
-  }
-  if(!password){
-    throw new Error('Please enter your password.');
-  }
-
-  const credential = fb.EmailAuthProvider.credential(user.email, password);
-  await fb.reauthenticateWithCredential(user, credential); // throws if password is wrong
-
-  const organizationId = getOrganizationId();
-
-  // Every subcollection this app writes documents into (see persist() and
-  // the migration helper) — deleted in full before the org doc itself.
-  const subcollections = [
-    'departments','students','classGroups','classes',
-    'enrollments','attendanceSessions','attendanceRecords','marks'
-  ];
-
-  for(const name of subcollections){
-    const colRef = fb.collection(fb.db, 'organizations', organizationId, name);
-    const snap = await fb.getDocs(colRef);
-    const ops = snap.docs.map(d => (batch => batch.delete(d.ref)));
-    if(ops.length) await _commitInChunks(fb, ops);
-  }
-
-  await fb.deleteDoc(fb.doc(fb.db, 'organizations', organizationId));
-
-  await fb.deleteUser(user); // last — once this succeeds there's no session left to retry with
-
-  resetSessionState();
-  state.stage = 'landing';
-  render();
 }
 
 
@@ -1520,6 +1463,48 @@ async function deleteAttendanceRecord(date, classId, studentId){
     delete state._histCache.sessions[sessionId].records[studentId];
   }
 }
+
+/* --------------------------------------------------------------------------
+   CLASS PROGRESS LOGS (Classes tab → "Log Questions Done")
+   ------------------------------------------------------------------------
+   A lightweight record of how many questions were covered in a class
+   session, for one or more class groups at once. Lives in its own
+   collection since it isn't attendance data and doesn't need the
+   date|classId keying that collection relies on.
+--------------------------------------------------------------------------- */
+async function saveClassLog(payload){
+  const fb = window.attendoFirebase;
+  const user = fb.auth.currentUser;
+  if(!user) throw new Error("Cannot save class log: no authenticated user.");
+  const organizationId = getOrganizationId();
+  const logsCollection = fb.collection(fb.db, 'organizations', organizationId, 'classLogs');
+  const doc = {
+    topic: payload.topic,
+    description: payload.description || '',
+    classGroupIds: payload.classGroupIds,
+    teacher: payload.teacher || '',
+    questionsCount: payload.questionsCount,
+    date: todayStr(),
+    createdAt: Date.now()
+  };
+  await fb.addDoc(logsCollection, doc);
+  if(!state._classLogsCache) state._classLogsCache = [];
+  state._classLogsCache.unshift({ id: `local_${doc.createdAt}`, ...doc });
+  return doc;
+}
+
+async function fetchClassLogs(){
+  if(state._classLogsCache) return state._classLogsCache;
+  const fb = window.attendoFirebase;
+  const organizationId = getOrganizationId();
+  const snap = await fb.getDocs(fb.collection(fb.db, 'organizations', organizationId, 'classLogs'));
+  const logs = [];
+  snap.forEach(d=>logs.push({ id:d.id, ...d.data() }));
+  logs.sort((a,b)=> (b.createdAt||0) - (a.createdAt||0));
+  state._classLogsCache = logs;
+  return logs;
+}
+
 
 /* --------------------------------------------------------------------------
    FETCH A STUDENT'S FULL ATTENDANCE HISTORY (on demand)
@@ -3201,7 +3186,15 @@ function renderRollCall(root){
   const roster = rosterFor(cls.id).sort((a,b)=>a.roll-b.roll);
   const date = todayStr(), key = `${date}|${cls.id}`;
   const existing = (data.attendance[key] && data.attendance[key].records) || {};
-  if(!state._rcKey || state._rcKey!==key){ state.rcStatus = {...existing}; state.rcDirty=false; state._rcKey=key; }
+  // If attendance for this class/date hasn't been saved yet, default every
+  // student to Present so the teacher only has to click Absent (or Late/
+  // Excused) for the exceptions, instead of marking everyone by hand. Once
+  // a session is saved, re-opening it shows exactly what was saved.
+  const defaultStatus = ()=>{
+    if(data.attendance[key]) return {...existing};
+    const m = {}; roster.forEach(s=>{ m[s.id] = 'Present'; }); return m;
+  };
+  if(!state._rcKey || state._rcKey!==key){ state.rcStatus = defaultStatus(); state.rcDirty=false; state._rcKey=key; }
   const statusMap = state.rcStatus;
 
   const search = state._rcSearch || '', filter = state._rcFilter || 'All';
@@ -3274,7 +3267,7 @@ function renderRollCall(root){
     const st = b.getAttribute('data-status'); const m={}; roster.forEach(s=>m[s.id]=st);
     state.rcStatus = m; state.rcDirty=true; renderRollCall(root);
   });
-  document.querySelector('[data-action="rc-reset"]').onclick=()=>{ state.rcStatus={...existing}; state.rcDirty=false; renderRollCall(root); };
+  document.querySelector('[data-action="rc-reset"]').onclick=()=>{ state.rcStatus=defaultStatus(); state.rcDirty=false; renderRollCall(root); };
   document.getElementById('rc-search').oninput = (e)=>{ state._rcSearch = e.target.value; renderRollCall(root); document.getElementById('rc-search').focus(); document.getElementById('rc-search').setSelectionRange(999,999); };
   document.getElementById('rc-filter').onchange = (e)=>{ state._rcFilter = e.target.value; renderRollCall(root); };
   document.getElementById('rc-class-select').onchange = (e)=>{
@@ -3614,10 +3607,15 @@ function renderClasses(root){
   if(state._classGroupDetail) return renderClassGroupDetail(root, state._classGroupDetail);
   const data = state.data;
   const groups = data.classGroups || [];
+  const logs = state._classLogsCache;
+  const groupLabel = (id)=>{ const g = groups.find(x=>x.id===id); return g ? `${g.name}${g.section}` : '—'; };
   root.innerHTML = `
     <div class="page-head">
       <div><h1>Classes</h1><p>${groups.length} ${groups.length===1?'class':'classes'} set up.</p></div>
-      <button class="btn btn-primary" id="classgroup-add">${ic('plus')} Add Class</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-outline" id="classlog-add">${ic('clipboard')} Log Questions Done</button>
+        <button class="btn btn-primary" id="classgroup-add">${ic('plus')} Add Class</button>
+      </div>
     </div>
     ${groups.length===0?`
       <div class="card" style="padding:48px;">
@@ -3649,12 +3647,37 @@ function renderClasses(root){
         </div>`;
       }).join('')}
     </div>`}
+    <div class="settings-title" style="margin-top:26px;">Recent Progress Logs</div>
+    <div class="card table-wrap" style="margin-top:10px;">
+      <table>
+        <thead><tr><th>Date</th><th>Topic</th><th>Classes</th><th>Questions</th><th>Teacher</th></tr></thead>
+        <tbody>
+          ${logs===undefined?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">Loading recent logs…</div></div></td></tr>`:
+          logs.length===0?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">No progress logs yet. Use "Log Questions Done" after a class to start tracking coverage.</div></div></td></tr>`:
+          logs.slice(0,15).map(l=>`<tr>
+            <td>${prettyDate(l.date)}</td>
+            <td style="font-weight:600;">${l.topic}${l.description?`<div style="font-weight:400;font-size:11.5px;color:var(--slate);margin-top:2px;">${l.description}</div>`:''}</td>
+            <td style="color:var(--slate);">${(l.classGroupIds||[]).map(groupLabel).join(', ')}</td>
+            <td>${l.questionsCount}</td>
+            <td style="color:var(--slate);">${l.teacher||'—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
   `;
   document.querySelectorAll('[data-action="group-open"]').forEach(b=>b.onclick=()=>{ state._classGroupDetail = b.getAttribute('data-group'); state._classDayFilter = null; renderView(); });
   document.querySelectorAll('[data-action="group-edit"]').forEach(b=>b.onclick=()=> openClassGroupModal(b.getAttribute('data-group')));
   document.querySelectorAll('[data-action="group-delete"]').forEach(b=>b.onclick=()=> deleteClassGroup(b.getAttribute('data-group')));
   const addBtn = document.getElementById('classgroup-add'); if(addBtn) addBtn.onclick = ()=> openClassGroupModal(null);
   const addBtnEmpty = document.getElementById('classgroup-add-empty'); if(addBtnEmpty) addBtnEmpty.onclick = ()=> openClassGroupModal(null);
+  document.getElementById('classlog-add').onclick = ()=> openClassLogModal();
+  if(logs===undefined){
+    fetchClassLogs().then(()=>{ if(state.view==='classes' && !state._classGroupDetail) renderClasses(root); }).catch(err=>{
+      console.error('Failed to load class logs:', err);
+      state._classLogsCache = [];
+      if(state.view==='classes' && !state._classGroupDetail) renderClasses(root);
+    });
+  }
 }
 
 function renderClassGroupDetail(root, groupId){
@@ -3767,6 +3790,65 @@ function openClassGroupModal(groupId){
       showToast('Class added — now add its timetable periods');
     }
     await persist(data); close(); renderView();
+  };
+}
+
+function openClassLogModal(){
+  const data = state.data;
+  const groups = data.classGroups || [];
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="card modal">
+    <div class="modal-head"><h3>Log Questions Done</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
+    <form id="classlog-form">
+      <div class="field"><label>Topic Name</label><input required name="topic" class="input" placeholder="e.g. Quadratic Equations"/></div>
+      <div class="field"><label>Description <span style="font-weight:400;color:var(--slate);">(optional)</span></label><textarea name="description" class="input" rows="2" style="resize:vertical;" placeholder="Any notes about what was covered…"></textarea></div>
+      <div class="field">
+        <label>Class${groups.length===1?'':'es'}</label>
+        <div style="display:flex;flex-direction:column;gap:6px;max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:12px;padding:10px 12px;">
+          ${groups.length===0?`<div style="font-size:12.5px;color:var(--slate);">No classes yet — add one first.</div>`:
+          groups.map(g=>`<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;">
+            <input type="checkbox" name="classGroupIds" value="${g.id}"/> ${g.name}${g.section}
+          </label>`).join('')}
+        </div>
+      </div>
+      <div class="modal-grid2">
+        <div class="field"><label>Teacher Name <span style="font-weight:400;color:var(--slate);">(optional)</span></label><input name="teacher" class="input" placeholder="e.g. Mr. Sharma"/></div>
+        <div class="field"><label>No. of Questions Done</label><input required type="number" min="0" step="1" name="questionsCount" class="input" placeholder="e.g. 12"/></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">${ic('save')} Save</button>
+      </div>
+    </form>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close = ()=> overlay.remove();
+  overlay.querySelector('#modal-close').onclick = close;
+  overlay.querySelector('#modal-cancel').onclick = close;
+  overlay.querySelector('#classlog-form').onsubmit = async (e)=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const classGroupIds = fd.getAll('classGroupIds');
+    if(classGroupIds.length===0){ showToast('Select at least one class'); return; }
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try{
+      await saveClassLog({
+        topic: fd.get('topic'),
+        description: fd.get('description')||'',
+        classGroupIds,
+        teacher: fd.get('teacher')||'',
+        questionsCount: Number(fd.get('questionsCount'))
+      });
+      showToast('Class log saved');
+      close();
+      renderView();
+    }catch(err){
+      console.error('Failed to save class log:', err);
+      showToast('Could not save — try again');
+      submitBtn.disabled = false;
+    }
   };
 }
 
@@ -4519,17 +4601,6 @@ function renderSettings(root){
         <button class="btn btn-outline" id="change-pwd-btn">${ic('lock')} Reset Password</button>
         <div id="pwd-status" style="font-size:12.5px;margin-top:10px;"></div>
       </div>
-      <div class="card" style="padding:22px;margin-bottom:22px;border:1px solid ${T.red};">
-        <div class="settings-title" style="color:${T.red};">Danger Zone — Delete Account</div>
-        <div style="font-size:12.5px;color:var(--slate);margin-bottom:14px;line-height:1.6;">
-          This permanently deletes <b>${data.org.name}</b> — every student, class, timetable, attendance record, and mark — along with your sign-in account. This cannot be undone. To confirm, type your email, password, and the institution's exact name below.
-        </div>
-        <div class="field"><label>Email</label><input type="email" id="del-email" class="input" placeholder="${state.user?.email||'you@example.com'}" autocomplete="username"/></div>
-        <div class="field"><label>Password</label><input type="password" id="del-password" class="input" autocomplete="current-password"/></div>
-        <div class="field"><label>Institution Name — type exactly: "${data.org.name}"</label><input type="text" id="del-org-name" class="input" placeholder="${data.org.name}"/></div>
-        <button class="btn" id="delete-account-btn" style="background:${T.red};color:#fff;">${ic('trash')} Delete Account Permanently</button>
-        <div id="delete-status" style="font-size:12.5px;margin-top:10px;"></div>
-      </div>
       <button class="btn btn-primary" id="save-settings">${ic('save')} Save Settings</button>
     </div>
   `;
@@ -4577,25 +4648,6 @@ function renderSettings(root){
       statusEl.style.color = T.red;
       statusEl.textContent = (err && (err.code==='auth/invalid-credential' || err.code==='auth/wrong-password')) ? 'Current password is incorrect.' : (err.message || 'Could not update password.');
     }finally{
-      btn.disabled = false;
-    }
-  };
-  document.getElementById('delete-account-btn').onclick = async ()=>{
-    const statusEl = document.getElementById('delete-status');
-    const email = document.getElementById('del-email').value;
-    const password = document.getElementById('del-password').value;
-    const orgName = document.getElementById('del-org-name').value;
-    if(!confirm(`This will permanently delete "${data.org.name}" and everything in it — students, classes, attendance, marks — plus your login. This cannot be undone. Continue?`)) return;
-    const btn = document.getElementById('delete-account-btn');
-    btn.disabled = true; statusEl.style.color = 'var(--slate)'; statusEl.textContent = 'Deleting everything… this can take a moment.';
-    try{
-      await deleteOrganizationAccount(email, password, orgName);
-      showToast('Account deleted');
-      // deleteOrganizationAccount already resets state and re-renders the landing page.
-    }catch(err){
-      console.error('Account deletion failed:', err);
-      statusEl.style.color = T.red;
-      statusEl.textContent = (err && (err.code==='auth/invalid-credential' || err.code==='auth/wrong-password')) ? 'Password is incorrect.' : (err.message || 'Could not delete account.');
       btn.disabled = false;
     }
   };
