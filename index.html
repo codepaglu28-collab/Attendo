@@ -3255,10 +3255,7 @@ function renderRollCall(root){
 
     <div class="rc-savebar">
       <div class="status-txt">${markedCount}/${roster.length} marked ${saved?`<span style="color:${T.mintDeep};font-weight:700;">· Saved</span>`:''}${state.rcDirty?`<span style="color:${T.amber};font-weight:700;">· Unsaved changes</span>`:''}</div>
-      <div style="position:relative;display:inline-block;">
-        <button class="btn btn-mint" id="rc-save" style="border-radius:999px;padding:12px 26px;font-size:15px;" ${markedCount===0?'disabled':''}>${ic('save')} Save Attendance</button>
-        <span style="position:absolute;top:-9px;right:-10px;background:${T.amber};color:#fff;font-size:9.5px;font-weight:800;letter-spacing:.04em;padding:3px 8px;border-radius:999px;box-shadow:0 3px 8px -2px rgba(0,0,0,.35);pointer-events:none;">NEW</span>
-      </div>
+      <button class="btn btn-primary" id="rc-save" ${markedCount===0?'disabled':''}>${ic('save')} Save Attendance</button>
     </div>
   `;
 
@@ -3616,7 +3613,10 @@ function renderClasses(root){
     <div class="page-head">
       <div><h1>Classes</h1><p>${groups.length} ${groups.length===1?'class':'classes'} set up.</p></div>
       <div style="display:flex;gap:8px;">
-        <button class="btn btn-outline" id="classlog-add">${ic('clipboard')} Log Questions Done</button>
+        <div style="position:relative;display:inline-block;">
+          <button class="btn btn-mint" id="classlog-add" style="border-radius:999px;padding:12px 26px;font-size:15px;">${ic('clipboard')} Questions Done</button>
+          <span style="position:absolute;top:-9px;right:-10px;background:${T.amber};color:#fff;font-size:9.5px;font-weight:800;letter-spacing:.04em;padding:3px 8px;border-radius:999px;box-shadow:0 3px 8px -2px rgba(0,0,0,.35);pointer-events:none;">NEW</span>
+        </div>
         <button class="btn btn-primary" id="classgroup-add">${ic('plus')} Add Class</button>
       </div>
     </div>
@@ -3650,13 +3650,16 @@ function renderClasses(root){
         </div>`;
       }).join('')}
     </div>`}
-    <div class="settings-title" style="margin-top:26px;">Recent Progress Logs</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:26px;">
+      <div class="settings-title" style="margin:0;">Recent Questions Done</div>
+      <button class="btn btn-outline btn-sm" id="classlog-export" ${(logs===undefined||logs.length===0)?'disabled':''}>${ic('download')} Export CSV</button>
+    </div>
     <div class="card table-wrap" style="margin-top:10px;">
       <table>
         <thead><tr><th>Date</th><th>Topic</th><th>Classes</th><th>Questions</th><th>Teacher</th></tr></thead>
         <tbody>
           ${logs===undefined?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">Loading recent logs…</div></div></td></tr>`:
-          logs.length===0?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">No progress logs yet. Use "Log Questions Done" after a class to start tracking coverage.</div></div></td></tr>`:
+          logs.length===0?`<tr><td colspan="5"><div class="empty"><div class="empty-txt">No progress logs yet. Use "Questions Done" after a class to start tracking coverage.</div></div></td></tr>`:
           logs.slice(0,15).map(l=>`<tr>
             <td>${prettyDate(l.date)}</td>
             <td style="font-weight:600;">${l.topic}${l.description?`<div style="font-weight:400;font-size:11.5px;color:var(--slate);margin-top:2px;">${l.description}</div>`:''}</td>
@@ -3673,6 +3676,16 @@ function renderClasses(root){
   document.querySelectorAll('[data-action="group-delete"]').forEach(b=>b.onclick=()=> deleteClassGroup(b.getAttribute('data-group')));
   const addBtn = document.getElementById('classgroup-add'); if(addBtn) addBtn.onclick = ()=> openClassGroupModal(null);
   const addBtnEmpty = document.getElementById('classgroup-add-empty'); if(addBtnEmpty) addBtnEmpty.onclick = ()=> openClassGroupModal(null);
+  const exportBtn = document.getElementById('classlog-export');
+  if(exportBtn && logs && logs.length>0){
+    exportBtn.onclick = ()=>{
+      const rows = [["Date","Topic","Description","Classes","Questions","Teacher"], ...logs.map(l=>[
+        csvDateCell(l.date), l.topic, l.description||'', (l.classGroupIds||[]).map(groupLabel).join(' | '), l.questionsCount, l.teacher||''
+      ])];
+      const csv = rows.map(row=>row.map((v,i)=> i===0 ? v : `"${String(v).replace(/"/g,'""')}"`).join(",")).join(String.fromCharCode(13)+String.fromCharCode(10));
+      const blob = new Blob(['\uFEFF'+csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='questions-done.csv'; a.click();
+    };
+  }
   document.getElementById('classlog-add').onclick = ()=> openClassLogModal();
   if(logs===undefined){
     fetchClassLogs().then(()=>{ if(state.view==='classes' && !state._classGroupDetail) renderClasses(root); }).catch(err=>{
@@ -3802,7 +3815,7 @@ function openClassLogModal(){
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `<div class="card modal">
-    <div class="modal-head"><h3>Log Questions Done</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
+    <div class="modal-head"><h3>Questions Done</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
     <form id="classlog-form">
       <div class="field"><label>Topic Name</label><input required name="topic" class="input" placeholder="e.g. Quadratic Equations"/></div>
       <div class="field"><label>Description <span style="font-weight:400;color:var(--slate);">(optional)</span></label><textarea name="description" class="input" rows="2" style="resize:vertical;" placeholder="Any notes about what was covered…"></textarea></div>
@@ -3821,7 +3834,7 @@ function openClassLogModal(){
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
-        <button type="submit" class="btn btn-primary">${ic('save')} Save</button>
+        <button type="submit" class="btn btn-primary">Save</button>
       </div>
     </form>
   </div>`;
