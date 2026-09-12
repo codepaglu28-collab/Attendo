@@ -3255,7 +3255,10 @@ function renderRollCall(root){
 
     <div class="rc-savebar">
       <div class="status-txt">${markedCount}/${roster.length} marked ${saved?`<span style="color:${T.mintDeep};font-weight:700;">· Saved</span>`:''}${state.rcDirty?`<span style="color:${T.amber};font-weight:700;">· Unsaved changes</span>`:''}</div>
-      <button class="btn btn-primary" id="rc-save" ${markedCount===0?'disabled':''}>${ic('save')} Save Attendance</button>
+      <div style="position:relative;display:inline-block;">
+        <button class="btn btn-mint" id="rc-save" style="border-radius:999px;padding:12px 26px;font-size:15px;" ${markedCount===0?'disabled':''}>${ic('save')} Save Attendance</button>
+        <span style="position:absolute;top:-9px;right:-10px;background:${T.amber};color:#fff;font-size:9.5px;font-weight:800;letter-spacing:.04em;padding:3px 8px;border-radius:999px;box-shadow:0 3px 8px -2px rgba(0,0,0,.35);pointer-events:none;">NEW</span>
+      </div>
     </div>
   `;
 
