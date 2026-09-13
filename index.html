@@ -163,6 +163,30 @@ select.input{width:auto;}
 
 .footer{border-top:1px solid var(--border); padding:36px 0; display:flex; justify-content:space-between; align-items:center; margin-top:20px;}
 .footer-copy{font-size:12px; color:var(--slate);}
+.credit-card{
+  display:flex; align-items:center; gap:14px;
+  padding:14px 18px 14px 14px; border-radius:18px;
+  background:linear-gradient(135deg,var(--blue-soft),var(--mint-soft));
+  border:1px solid var(--border);
+  box-shadow:0 14px 30px -20px rgba(11,30,61,.4);
+  margin-top:8px;
+}
+.credit-avatar{
+  width:42px; height:42px; border-radius:999px; flex-shrink:0;
+  display:grid; place-items:center; color:#fff; font-weight:800; font-size:14px;
+  background:linear-gradient(135deg,var(--blue),var(--mint));
+  box-shadow:0 6px 14px -4px rgba(43,108,246,.5);
+}
+.credit-info{text-align:left;}
+.credit-label{font-size:10px; color:var(--slate); text-transform:uppercase; letter-spacing:.06em; font-weight:700;}
+.credit-name{font-size:14.5px; font-weight:800; color:var(--navy); margin-top:1px;}
+.credit-mail{
+  display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600;
+  color:var(--blue-deep); text-decoration:none; padding:8px 14px; border-radius:999px;
+  background:var(--surface); border:1px solid var(--border); transition:.15s; margin-left:4px;
+}
+.credit-mail:hover{background:var(--blue-soft); border-color:var(--blue);}
+.credit-mail svg{width:14px; height:14px; flex-shrink:0;}
 
 /* ============================= 3D FLOAT CARD ============================= */
 .float-wrap{position:relative; height:400px; perspective:1400px;}
@@ -614,6 +638,7 @@ const ICONS = {
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
   save: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>',
   lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+  mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>',
   reset: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
   trend: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
@@ -2370,7 +2395,14 @@ function renderLanding(){
     <div class="container footer" style="flex-direction:column;gap:6px;align-items:center;text-align:center;">
       ${logoHTML()}
       <div class="footer-copy">© 2026 Attendo. All rights reserved.</div>
-      <div class="footer-copy">Made by Neekith D · <a href="mailto:neekithdevanand@gmail.com" style="color:var(--blue);">neekithdevanand@gmail.com</a></div>
+      <div class="credit-card">
+        <div class="credit-avatar">ND</div>
+        <div class="credit-info">
+          <div class="credit-label">Developed by</div>
+          <div class="credit-name">Neekith D</div>
+        </div>
+        <a href="mailto:neekithdevanand@gmail.com" class="credit-mail">${ic('mail')} neekithdevanand@gmail.com</a>
+      </div>
     </div>
   </div>`;
 }
