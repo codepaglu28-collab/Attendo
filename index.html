@@ -3249,7 +3249,21 @@ function renderRollCall(root){
         <div class="rc-meta"><div class="l">Time</div><div class="v">${cls.time}</div></div>
       </div>
       <select id="rc-class-select" class="input" style="width:auto;font-weight:600;">
-        ${classes.map(c=>`<option value="${c.id}" ${c.id===cls.id?'selected':''}>${c.subject} — ${c.name}${c.section}</option>`).join('')}
+        ${(()=>{
+          // Multiple periods can share the same class + section (e.g. two
+          // Maths periods), which used to show as duplicate identical
+          // entries here. Collapse those down to one option per unique
+          // class name — picking it takes you to whichever specific
+          // period is currently active for that class, or its first
+          // period otherwise.
+          const seen = new Set();
+          const uniqueClasses = classes.filter(c=>{
+            const label = `${c.name}${c.section}`;
+            if(seen.has(label)) return false;
+            seen.add(label); return true;
+          });
+          return uniqueClasses.map(c=>`<option value="${c.id}" ${c.name===cls.name && c.section===cls.section?'selected':''}>${c.name}${c.section}</option>`).join('');
+        })()}
       </select>
     </div>
 
