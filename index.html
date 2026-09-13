@@ -2462,7 +2462,7 @@ function renderAuth(){
         <div class="auth-mobile-back">${backBtnHTML()}</div>
         <div class="auth-tabs" style="display:flex;gap:6px;margin-bottom:18px;">
           <button type="button" class="btn btn-sm ${mode==='login'?'btn-ghost':'btn-subtle'}" data-action="switch-login">Log In</button>
-          <button type="button" class="btn btn-sm ${mode==='signup'?'btn-ghost':'btn-subtle'}" data-action="switch-signup">Sign Up</button>
+          <button type="button" class="btn btn-sm btn-subtle" data-action="switch-signup" disabled title="New sign-ups are currently closed">Sign Up</button>
           <button type="button" class="btn btn-sm ${mode==='parent'?'btn-ghost':'btn-subtle'}" data-action="switch-parent">Parent Login</button>
         </div>
         <div class="auth-title">${title}</div>
@@ -2490,7 +2490,7 @@ function renderAuth(){
         `}
         <div class="auth-switch">
           ${mode==='parent' ? `Not a parent? <button type="button" data-action="switch-login">Staff login</button>` :
-            mode==='login'?`Don't have an account? <button type="button" data-action="switch-signup">Sign up</button>`:`Already have an account? <button type="button" data-action="switch-login">Log in</button>`}
+            mode==='login'?``:`Already have an account? <button type="button" data-action="switch-login">Log in</button>`}
         </div>
       </form>
     </div>
@@ -4813,7 +4813,7 @@ function renderParentDashboard(root){
    LANDING/AUTH SHARED HANDLERS + KICKOFF
 ============================================================================ */
 document.addEventListener('click', (e)=>{
-  const go = e.target.closest('[data-action="go-signup"]'); if(go){ pushNav(); state.authMode='signup'; state.stage='auth'; render(); return; }
+  const go = e.target.closest('[data-action="go-signup"]'); if(go){ pushNav(); state.authMode='login'; state.stage='auth'; render(); return; }
   const goL = e.target.closest('[data-action="go-login"]'); if(goL){ pushNav(); state.authMode='login'; state.stage='auth'; render(); return; }
   const goP = e.target.closest('[data-action="go-parent-login"]'); if(goP){ pushNav(); state.authMode='parent'; state.stage='auth'; render(); return; }
   const backB = e.target.closest('[data-action="go-back"]'); if(backB){ goBack(); return; }
