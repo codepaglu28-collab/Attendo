@@ -712,6 +712,19 @@ function initials(name){ return name.split(" ").map(x=>x[0]).join("").slice(0,2)
  * resolves a period back to its group before looking up who's enrolled.
  * ----------------------------------------------------------------------------
  */
+function uniqueClassesByGroup(classesArr){
+  // Multiple periods (different subjects/teachers/times) can share the same
+  // class name + section (e.g. "1PUC-I1" has one period per subject). Listing
+  // every period in a class picker shows the same label repeated once per
+  // subject. This collapses that down to one option per unique class name,
+  // matching the approach already used for the Roll Call class selector.
+  const seen = new Set();
+  return classesArr.filter(c=>{
+    const label = `${c.name}${c.section}`;
+    if(seen.has(label)) return false;
+    seen.add(label); return true;
+  });
+}
 function rosterFor(periodId){
   const period = (state.data.classes||[]).find(c=>c.id===periodId);
   // Falls back to treating the id as a group id directly, so this still
@@ -4163,8 +4176,15 @@ function renderMarks(root){
     return { ...m, studentName: student?student.name:'Unknown Student', className: cls?`${cls.name}${cls.section}`:'—', subject: m.subject || (cls?cls.subject:'—'), pct };
   });
 
+  // The class filter dropdown lists one option per unique class name (see
+  // uniqueClassesByGroup), but a mark's classId points at one specific
+  // subject period. So "matches the filter" means "belongs to any period
+  // that shares the selected class's name + section" — not an exact id match.
+  const selectedFilterClass = classFilter!=='All' ? classes.find(c=>c.id===classFilter) : null;
+  const classFilterIds = selectedFilterClass ? new Set(classes.filter(c=>c.name===selectedFilterClass.name && c.section===selectedFilterClass.section).map(c=>c.id)) : null;
+
   const applyFilters = (enriched)=> enriched.filter(m=>{
-    if(classFilter!=='All' && m.classId!==classFilter) return false;
+    if(classFilterIds && !classFilterIds.has(m.classId)) return false;
     if(subjectFilter!=='All' && m.subject!==subjectFilter) return false;
     // A % filter doesn't apply to an absence (there's no score to compare),
     // so an active min/max filter excludes absent entries entirely rather
@@ -4207,7 +4227,7 @@ function renderMarks(root){
         `}
         <select id="mk-class-filter" class="input">
           <option value="All" ${classFilter==='All'?'selected':''}>All Classes</option>
-          ${classes.map(c=>`<option value="${c.id}" ${classFilter===c.id?'selected':''}>${c.name}${c.section}</option>`).join('')}
+          ${uniqueClassesByGroup(classes).map(c=>`<option value="${c.id}" ${classFilter===c.id?'selected':''}>${c.name}${c.section}</option>`).join('')}
         </select>
         <select id="mk-subject-filter" class="input">
           <option value="All" ${subjectFilter==='All'?'selected':''}>All Subjects</option>
@@ -4691,7 +4711,8 @@ function openBulkMarksModal(presetClassId){
   const data = state.data;
   const classes = data.classes || [];
   if(classes.length===0){ showToast('Add a class first'); state.view='classes'; render(); return; }
-  let classId = presetClassId || classes[0].id;
+  const pickerClasses = uniqueClassesByGroup(classes);
+  let classId = presetClassId || pickerClasses[0].id;
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -4706,7 +4727,7 @@ function openBulkMarksModal(presetClassId){
         <div class="field">
           <label>Class</label>
           <select name="classId" id="bm-class" class="input" style="width:100%;">
-            ${classes.map(c=>`<option value="${c.id}" ${c.id===classId?'selected':''}>${c.name}${c.section}</option>`).join('')}
+            ${pickerClasses.map(c=>`<option value="${c.id}" ${c.id===classId?'selected':''}>${c.name}${c.section}</option>`).join('')}
           </select>
         </div>
         <div class="field"><label>Maximum Marks</label><input required type="number" min="1" step="0.5" name="maxMarks" id="bm-max" class="input" value="100"/></div>
@@ -4822,7 +4843,8 @@ function openQuickMarksSetupModal(presetClassId){
   const data = state.data;
   const classes = data.classes || [];
   if(classes.length===0){ showToast('Add a class first'); state.view='classes'; render(); return; }
-  const classId = presetClassId || classes[0].id;
+  const pickerClasses = uniqueClassesByGroup(classes);
+  const classId = presetClassId || pickerClasses[0].id;
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -4837,7 +4859,7 @@ function openQuickMarksSetupModal(presetClassId){
         <div class="field">
           <label>Class</label>
           <select name="classId" id="qm-class" class="input" style="width:100%;">
-            ${classes.map(c=>`<option value="${c.id}" ${c.id===classId?'selected':''}>${c.name}${c.section}</option>`).join('')}
+            ${pickerClasses.map(c=>`<option value="${c.id}" ${c.id===classId?'selected':''}>${c.name}${c.section}</option>`).join('')}
           </select>
         </div>
         <div class="field"><label>Maximum Marks</label><input required type="number" min="1" step="0.5" name="maxMarks" class="input" value="100"/></div>
