@@ -653,6 +653,7 @@ const ICONS = {
   bolt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
   reset: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+  upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
   trend: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
   alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>',
@@ -4211,6 +4212,7 @@ function renderMarks(root){
         <div><h1>Marks</h1><p>${totalCountLabel}</p></div>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-outline" id="marks-export" ${loading?'disabled':''}>${ic('download')} Export CSV</button>
+          <button class="btn btn-outline" id="marks-import">${ic('upload')} Import CSV</button>
           <button class="btn btn-mint" id="marks-quick">${ic('bolt')} Quick Marks Entry</button>
           <button class="btn btn-primary" id="marks-add">${ic('plus')} Add Marks</button>
         </div>
@@ -4286,6 +4288,7 @@ function renderMarks(root){
 
     document.getElementById('marks-add').onclick = ()=> openBulkMarksModal(classFilter!=='All'?classFilter:null);
     document.getElementById('marks-quick').onclick = ()=> openQuickMarksSetupModal(classFilter!=='All'?classFilter:null);
+    document.getElementById('marks-import').onclick = ()=> openMarksCsvImportModal(classFilter!=='All'?classFilter:null);
     if(!loading){
       document.getElementById('marks-export').onclick = ()=>{
         const rows=[["Date","Student","Class","Subject","Exam","Marks","Max Marks","Percentage"], ...filtered.map(m=>[csvDateCell(m.date),m.studentName,m.className,m.subject,m.examName,m.absent?'AB':m.marks,m.maxMarks,m.absent?'AB':m.pct+'%'])];
@@ -4827,6 +4830,240 @@ function openBulkMarksModal(presetClassId){
       renderView();
     }catch(err){
       console.error('Failed to save marks:', err);
+      showToast('Could not save — try again');
+      submitBtn.disabled = false;
+    }
+  };
+}
+
+/* ============================================================================
+   IMPORT MARKS FROM CSV — bulk-loads a multi-subject marksheet like a KCET/
+   PU test sheet: one row per student (Roll No, Name, then one column per
+   subject, optionally a Total column), rather than the single-subject
+   Add Marks flow above. Handles the common "AB" = absent convention and a
+   sheet that has an extra sub-header row of "60 MARKS" under each subject.
+============================================================================ */
+function parseCsvRows(text){
+  // Minimal RFC4180-ish parser: handles quoted fields, escaped quotes ("")
+  // and commas/newlines inside quotes. Good enough for a spreadsheet export.
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for(let i=0;i<text.length;i++){
+    const ch = text[i], next = text[i+1];
+    if(inQuotes){
+      if(ch === '"' && next === '"'){ field += '"'; i++; }
+      else if(ch === '"'){ inQuotes = false; }
+      else field += ch;
+    } else {
+      if(ch === '"'){ inQuotes = true; }
+      else if(ch === ','){ row.push(field); field=''; }
+      else if(ch === '\r'){ /* skip, \n handles the break */ }
+      else if(ch === '\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else field += ch;
+    }
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  return rows.map(r=>r.map(c=>String(c).trim()));
+}
+
+function parseMarksSheet(rows){
+  // Find the header row: the first row with a cell mentioning "roll" and
+  // another mentioning "name" (title/date/blank rows above it are skipped).
+  let headerIdx=-1, rollCol=-1, nameCol=-1;
+  for(let i=0;i<rows.length;i++){
+    const r = rows[i];
+    const rc = r.findIndex(c=>/roll/i.test(c));
+    const nc = r.findIndex(c=>/name/i.test(c));
+    if(rc!==-1 && nc!==-1){ headerIdx=i; rollCol=rc; nameCol=nc; break; }
+  }
+  if(headerIdx===-1) return { error:'Could not find a header row with "Roll No" and "Name" columns.' };
+
+  // Pull a test date out of any row like "TEST DATE: 31.08.2026", if present.
+  let detectedDate = null;
+  for(const r of rows){
+    const m = r.join(' ').match(/TEST\s*DATE\s*[:\-]?\s*(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/i);
+    if(m){ let [,d,mo,y]=m; if(y.length===2) y='20'+y; detectedDate = `${y.padStart(4,'0')}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`; break; }
+  }
+
+  const headerRow = rows[headerIdx];
+  const afterCol = Math.max(rollCol, nameCol);
+  const subjectCols = [];
+  for(let c=0;c<headerRow.length;c++){
+    if(c<=afterCol) continue;
+    const h = (headerRow[c]||'').trim();
+    if(!h || /total/i.test(h)) continue;
+    subjectCols.push(c);
+  }
+  if(subjectCols.length===0) return { error:'Could not find any subject columns after Roll No / Name.' };
+
+  // A sheet like the KCET marksheet has a sub-header row of "60 MARKS" under
+  // each subject — detect it so those numbers become each subject's max.
+  // A real subheader row leaves the Roll No / Name cells blank, which is
+  // what distinguishes it from a genuine data row that happens to have
+  // small numeric scores.
+  let maxRowIdx = -1;
+  const nextRow = rows[headerIdx+1];
+  if(nextRow){
+    const rollNameBlank = !(nextRow[rollCol]||'').trim() && !(nextRow[nameCol]||'').trim();
+    const looksNumeric = subjectCols.every(c=>{ const v=(nextRow[c]||'').trim(); return v==='' || /^\d+(\.\d+)?\s*(marks)?$/i.test(v); });
+    const hasDigit = subjectCols.some(c=>/\d/.test(nextRow[c]||''));
+    if(rollNameBlank && looksNumeric && hasDigit) maxRowIdx = headerIdx+1;
+  }
+
+  const subjects = subjectCols.map(c=>{
+    let name = (headerRow[c]||'').trim();
+    let maxMarks = null;
+    const inline = name.match(/(\d+)\s*(marks)?\s*$/i);
+    if(inline){ maxMarks = Number(inline[1]); name = name.slice(0, inline.index).trim(); }
+    if(maxRowIdx!==-1){
+      const found = (rows[maxRowIdx][c]||'').match(/\d+(\.\d+)?/);
+      if(found) maxMarks = Number(found[0]);
+    }
+    name = name.replace(/[:\-]+$/,'').trim();
+    return { col:c, name: name || `Subject ${c+1}`, maxMarks: maxMarks || 100 };
+  });
+
+  const dataStart = (maxRowIdx!==-1 ? maxRowIdx : headerIdx) + 1;
+  const dataRows = rows.slice(dataStart).filter(r=>r.some(c=>String(c||'').trim()!==''));
+
+  return { detectedDate, rollCol, nameCol, subjects, dataRows };
+}
+
+function openMarksCsvImportModal(presetClassId){
+  const data = state.data;
+  const classes = data.classes || [];
+  if(classes.length===0){ showToast('Add a class first'); state.view='classes'; render(); return; }
+  const pickerClasses = uniqueClassesByGroup(classes);
+  let classId = presetClassId || pickerClasses[0].id;
+  let parsed = null; // result of parseMarksSheet(), or {error}
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="card modal" style="max-width:560px;">
+    <div class="modal-head"><h3>Import Marks from CSV</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
+    <form id="csv-import-form">
+      <div class="modal-grid2">
+        <div class="field"><label>Test Name</label><input required name="examName" id="ci-exam" class="input" placeholder="Unit Test 1"/></div>
+        <div class="field"><label>Date</label><input required type="date" name="date" id="ci-date" class="input" value="${todayStr()}"/></div>
+      </div>
+      <div class="field">
+        <label>Class</label>
+        <select id="ci-class" class="input" style="width:100%;">
+          ${pickerClasses.map(c=>`<option value="${c.id}" ${c.id===classId?'selected':''}>${c.name}${c.section}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>CSV File</label>
+        <input type="file" accept=".csv,text/csv" id="ci-file" class="input"/>
+        <div style="font-size:12px;color:var(--slate);margin-top:6px;">One row per student: a Roll No column, a Name column, then one column per subject (a "60 MARKS" sub-header row is fine). Use "AB" for absent, leave blank to skip.</div>
+      </div>
+      <div id="ci-preview"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="ci-submit" disabled>Save Marks</button>
+      </div>
+    </form>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close = ()=> overlay.remove();
+  overlay.querySelector('#modal-close').onclick = close;
+  overlay.querySelector('#modal-cancel').onclick = close;
+
+  const previewEl = overlay.querySelector('#ci-preview');
+  const submitBtn = overlay.querySelector('#ci-submit');
+
+  function renderPreview(){
+    if(!parsed){ previewEl.innerHTML=''; submitBtn.disabled = true; return; }
+    if(parsed.error){
+      previewEl.innerHTML = `<div style="font-size:13px;color:${T.red};margin:8px 0 16px;">${parsed.error}</div>`;
+      submitBtn.disabled = true;
+      return;
+    }
+    const roster = rosterFor(classId);
+    const rollOf = row => (row[parsed.rollCol]||'').trim();
+    const matched = parsed.dataRows.filter(r=> roster.some(s=> String(s.roll).trim()===rollOf(r) || (rollOf(r)!=='' && Number(s.roll)===Number(rollOf(r)))));
+    const unmatchedRolls = parsed.dataRows.filter(r=>!matched.includes(r)).map(rollOf).filter(Boolean);
+
+    previewEl.innerHTML = `
+      <div class="field"><label>Subjects Detected</label>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${parsed.subjects.map((s,i)=>`
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="flex:1;font-size:13.5px;font-weight:600;">${s.name}</div>
+              <label style="font-size:11.5px;color:var(--slate);">Max</label>
+              <input type="number" min="1" step="0.5" class="input ci-max" data-i="${i}" value="${s.maxMarks}" style="width:80px;"/>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      <div style="font-size:12.5px;color:var(--slate);margin:-6px 0 16px;">
+        ${matched.length} of ${parsed.dataRows.length} rows matched to students enrolled in this class.
+        ${unmatchedRolls.length ? `<br/><span style="color:${T.amber};">Unmatched roll #: ${unmatchedRolls.slice(0,10).join(', ')}${unmatchedRolls.length>10?` +${unmatchedRolls.length-10} more`:''} — these will be skipped.</span>` : ''}
+      </div>
+    `;
+    previewEl.querySelectorAll('.ci-max').forEach(inp=>{
+      inp.onchange = ()=>{ parsed.subjects[Number(inp.getAttribute('data-i'))].maxMarks = Number(inp.value)||100; };
+    });
+    submitBtn.disabled = matched.length===0;
+  }
+
+  overlay.querySelector('#ci-class').onchange = (e)=>{ classId = e.target.value; renderPreview(); };
+  overlay.querySelector('#ci-file').onchange = (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const rows = parseCsvRows(String(reader.result));
+      parsed = parseMarksSheet(rows);
+      if(parsed && !parsed.error && parsed.detectedDate){ overlay.querySelector('#ci-date').value = parsed.detectedDate; }
+      renderPreview();
+    };
+    reader.onerror = ()=>{ showToast('Could not read that file'); };
+    reader.readAsText(file);
+  };
+
+  overlay.querySelector('#csv-import-form').onsubmit = async (e)=>{
+    e.preventDefault();
+    if(!parsed || parsed.error) return;
+    const fd = new FormData(e.target);
+    const examName = String(fd.get('examName')).trim();
+    const date = String(fd.get('date'));
+    const roster = rosterFor(classId);
+    const rollOf = row => (row[parsed.rollCol]||'').trim();
+    const entries = [];
+    let unmatched=0, invalid=0, skipped=0;
+    parsed.dataRows.forEach(row=>{
+      const rr = rollOf(row);
+      const student = roster.find(s=> String(s.roll).trim()===rr || (rr!=='' && Number(s.roll)===Number(rr)));
+      if(!student){ unmatched++; return; }
+      parsed.subjects.forEach(sub=>{
+        const raw = (row[sub.col]||'').trim();
+        if(raw===''){ skipped++; return; }
+        if(/^ab(sent)?$/i.test(raw)){ entries.push({ studentId:student.id, classId, subject:sub.name, examName, marks:null, absent:true, maxMarks:sub.maxMarks, date }); return; }
+        const val = Number(raw);
+        if(isNaN(val) || val>sub.maxMarks){ invalid++; return; }
+        entries.push({ studentId:student.id, classId, subject:sub.name, examName, marks:val, absent:false, maxMarks:sub.maxMarks, date });
+      });
+    });
+    if(entries.length===0){ showToast('No valid marks found to import'); return; }
+    submitBtn.disabled = true;
+    if(!data.marks) data.marks = [];
+    entries.forEach((payload, i)=>{
+      const id = `M${Date.now()}${i}${Math.floor(Math.random()*10000)}`;
+      data.marks.push({ id, ...payload });
+    });
+    state._marksCache = null;
+    state._studentMarksCache = null;
+    try{
+      await persist(data);
+      const bits = [`Imported ${entries.length} marks`];
+      if(unmatched) bits.push(`${unmatched} unmatched rows skipped`);
+      if(invalid) bits.push(`${invalid} invalid values skipped`);
+      showToast(bits.join(' · '));
+      close();
+      renderView();
+    }catch(err){
+      console.error('Failed to import marks:', err);
       showToast('Could not save — try again');
       submitBtn.disabled = false;
     }
