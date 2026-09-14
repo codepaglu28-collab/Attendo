@@ -783,6 +783,8 @@ function resetSessionState(){
   state.parentLoading = false;
   state.parentView = 'dashboard';
   state.parentNotifications = null;
+  state.parentNotifError = false;
+  state._parentNotifFetchInFlight = false;
   state._notificationsCache = null;
   state._firestoreCache = null;
   state._pendingMarkDeletes = [];
@@ -1569,6 +1571,23 @@ async function fetchClassLogs(){
    dashboard; parents see it in a bell dropdown on their own dashboard.
    audience is either 'all' (every parent in the org) or a classGroupId
    (only parents whose child is in that class).
+
+   IMPORTANT — Firestore security rules: parents read this collection over
+   an anonymous sign-in (see parentLogin()), so the rules must grant that
+   anonymous, authenticated user read access to
+   organizations/{orgId}/notifications the same way they already do for
+   'students', 'classGroups', etc. (see the note above parentLogin()). If
+   that collection isn't included in the rules yet, sendNotification()
+   will still succeed for the admin (who's signed in with a real staff
+   account) but fetchParentNotifications() will silently fail on the
+   parent's side — that failure is caught below and currently just
+   surfaces as "0 notifications", which is indistinguishable from there
+   genuinely being none. Something like this is a reasonable starting
+   rule:
+     match /organizations/{orgId}/notifications/{notifId} {
+       allow read: if request.auth != null;
+       allow write: if request.auth != null && request.auth.token.email != null;
+     }
 --------------------------------------------------------------------------- */
 async function sendNotification(payload){
   const fb = window.attendoFirebase;
@@ -1582,10 +1601,30 @@ async function sendNotification(payload){
     createdBy: (state.user && state.user.name) || 'Staff',
     createdAt: Date.now()
   };
-  await fb.addDoc(col, doc);
-  if(!state._notificationsCache) state._notificationsCache = [];
-  state._notificationsCache.unshift({ id:`local_${doc.createdAt}`, ...doc });
-  return doc;
+  const ref = await fb.addDoc(col, doc);
+  return { id: ref.id, ...doc };
+}
+
+async function updateNotification(notifId, payload){
+  const fb = window.attendoFirebase;
+  const organizationId = getOrganizationId();
+  const ref = fb.doc(fb.db, 'organizations', organizationId, 'notifications', notifId);
+  const updates = {
+    title: payload.title,
+    message: payload.message,
+    audience: payload.audience || 'all',
+    audienceLabel: payload.audienceLabel || 'All Parents',
+    editedAt: Date.now()
+  };
+  await fb.updateDoc(ref, updates);
+  return updates;
+}
+
+async function deleteNotification(notifId){
+  const fb = window.attendoFirebase;
+  const organizationId = getOrganizationId();
+  const ref = fb.doc(fb.db, 'organizations', organizationId, 'notifications', notifId);
+  await fb.deleteDoc(ref);
 }
 
 async function fetchOrgNotifications(organizationId){
@@ -1772,6 +1811,7 @@ const state = {
   parentLoading: false,
   parentView: 'dashboard', // 'dashboard' | 'timetable' — which tab the parent sidebar is on
   parentNotifications: null, // [] once fetched for this parent session; null = not loaded yet
+  parentNotifError: false,
   toastTimer: null,
   quickIdx: 0,
   quickStatus: {},
@@ -4508,11 +4548,14 @@ function openMarkModal(markId, presetStudentId, presetClassId){
 function openSendNotificationModal(){
   const data = state.data;
   const groups = data.classGroups || [];
+  let editingId = null;
+  let notifList = null; // null = loading, [] once fetched
+  let listError = false;
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
-  overlay.innerHTML = `<div class="card modal">
-    <div class="modal-head"><h3>Notify Parents</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
+  overlay.innerHTML = `<div class="card modal" style="max-width:560px;">
+    <div class="modal-head"><h3 id="notify-modal-title">Notify Parents</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
     <form id="notify-form">
       <div class="field"><label>Title</label><input required name="title" class="input" placeholder="Holiday on Friday" maxlength="80"/></div>
       <div class="field"><label>Message</label><textarea required name="message" class="input" rows="4" placeholder="Write the notification here…" style="width:100%;resize:vertical;font-family:inherit;"></textarea></div>
@@ -4524,36 +4567,117 @@ function openSendNotificationModal(){
         </select>
       </div>
       <div class="modal-actions">
-        <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
-        <button type="submit" class="btn btn-primary">${ic('bell').replace('<svg','<svg style="width:13px;height:13px"')} Send Notification</button>
+        <button type="button" class="btn btn-outline" id="notify-cancel-edit" style="display:none;">Cancel Edit</button>
+        <button type="button" class="btn btn-outline" id="modal-cancel">Close</button>
+        <button type="submit" class="btn btn-primary" id="notify-submit-btn">${ic('bell').replace('<svg','<svg style="width:13px;height:13px"')} Send Notification</button>
       </div>
     </form>
+    <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
+      <div style="font-size:12.5px;font-weight:700;color:var(--slate);margin-bottom:10px;">Sent Notifications</div>
+      <div id="notify-history" style="max-height:260px;overflow-y:auto;"></div>
+    </div>
   </div>`;
   document.body.appendChild(overlay);
   const close = ()=> overlay.remove();
   overlay.querySelector('#modal-close').onclick = close;
   overlay.querySelector('#modal-cancel').onclick = close;
-  overlay.querySelector('#notify-form').onsubmit = async (e)=>{
+
+  const form = overlay.querySelector('#notify-form');
+  const titleEl = overlay.querySelector('#notify-modal-title');
+  const submitBtn = overlay.querySelector('#notify-submit-btn');
+  const cancelEditBtn = overlay.querySelector('#notify-cancel-edit');
+  const sendIcon = ic('bell').replace('<svg','<svg style="width:13px;height:13px"');
+
+  function enterEditMode(n){
+    editingId = n.id;
+    form.title.value = n.title||'';
+    form.message.value = n.message||'';
+    form.audience.value = n.audience||'all';
+    titleEl.textContent = 'Edit Notification';
+    submitBtn.innerHTML = 'Save Changes';
+    cancelEditBtn.style.display = '';
+  }
+  function exitEditMode(){
+    editingId = null;
+    form.reset();
+    titleEl.textContent = 'Notify Parents';
+    submitBtn.innerHTML = `${sendIcon} Send Notification`;
+    cancelEditBtn.style.display = 'none';
+  }
+  cancelEditBtn.onclick = exitEditMode;
+
+  function renderHistory(){
+    const el = overlay.querySelector('#notify-history');
+    if(listError){ el.innerHTML = `<div style="font-size:12.5px;color:var(--slate);">Couldn't load past notifications.</div>`; return; }
+    if(notifList===null){ el.innerHTML = `<div style="font-size:12.5px;color:var(--slate);">Loading…</div>`; return; }
+    if(notifList.length===0){ el.innerHTML = `<div style="font-size:12.5px;color:var(--slate);">No notifications sent yet.</div>`; return; }
+    el.innerHTML = notifList.map(n=>`<div class="hist-row" style="align-items:flex-start;">
+      <div style="flex:1;min-width:0;padding-right:10px;">
+        <div style="font-weight:700;font-size:13px;">${n.title||''}</div>
+        <div style="font-size:12px;color:var(--slate);margin:2px 0;">${n.message||''}</div>
+        <div style="font-size:10.5px;color:var(--slate);text-transform:uppercase;">${n.audienceLabel||'All Parents'} · ${relativeTime(n.createdAt)}${n.editedAt?' · edited':''}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0;">
+        <button class="icon-btn" data-notif-edit="${n.id}" title="Edit">${ic('edit').replace('<svg','<svg style="width:14px;height:14px;color:var(--slate)"')}</button>
+        <button class="icon-btn" data-notif-delete="${n.id}" title="Delete">${ic('trash').replace('<svg','<svg style="width:14px;height:14px;color:'+T.red+'"')}</button>
+      </div>
+    </div>`).join('');
+    el.querySelectorAll('[data-notif-edit]').forEach(b=>b.onclick=()=>{
+      const n = notifList.find(x=>x.id===b.getAttribute('data-notif-edit'));
+      if(n) enterEditMode(n);
+    });
+    el.querySelectorAll('[data-notif-delete]').forEach(b=>b.onclick=async ()=>{
+      if(!confirm('Delete this notification? Parents will no longer see it.')) return;
+      const id = b.getAttribute('data-notif-delete');
+      try{
+        await deleteNotification(id);
+        notifList = notifList.filter(x=>x.id!==id);
+        if(editingId===id) exitEditMode();
+        renderHistory();
+        showToast('Notification deleted');
+      }catch(err){
+        console.error('Failed to delete notification:', err);
+        showToast('Could not delete notification. Please try again.');
+      }
+    });
+  }
+  renderHistory();
+  fetchOrgNotifications(getOrganizationId()).then(list=>{ notifList=list; renderHistory(); }).catch(err=>{
+    console.error('Failed to load notification history:', err);
+    listError = true;
+    renderHistory();
+  });
+
+  form.onsubmit = async (e)=>{
     e.preventDefault();
-    const fd = new FormData(e.target);
+    const fd = new FormData(form);
     const audience = fd.get('audience');
     const group = groups.find(g=>g.id===audience);
-    const submitBtn = overlay.querySelector('button[type="submit"]');
+    const payload = {
+      title: String(fd.get('title')).trim(),
+      message: String(fd.get('message')).trim(),
+      audience,
+      audienceLabel: group ? `${group.name}${group.section}` : 'All Parents'
+    };
     submitBtn.disabled = true;
     try{
-      await sendNotification({
-        title: String(fd.get('title')).trim(),
-        message: String(fd.get('message')).trim(),
-        audience,
-        audienceLabel: group ? `${group.name}${group.section}` : 'All Parents'
-      });
-      showToast('Notification sent');
-      close();
+      if(editingId){
+        const updates = await updateNotification(editingId, payload);
+        notifList = (notifList||[]).map(n=> n.id===editingId ? {...n, ...updates} : n);
+        showToast('Notification updated');
+        exitEditMode();
+      } else {
+        const created = await sendNotification(payload);
+        notifList = [created, ...(notifList||[])];
+        showToast('Notification sent');
+        form.reset();
+      }
+      renderHistory();
     }catch(err){
-      console.error('Failed to send notification:', err);
-      showToast('Could not send notification. Please try again.');
-      submitBtn.disabled = false;
+      console.error('Failed to save notification:', err);
+      showToast('Could not save notification. Please try again.');
     }
+    submitBtn.disabled = false;
   };
 }
 
@@ -5287,6 +5411,9 @@ function parentUnreadNotifCount(){
 }
 function renderParentNotifPanel(){
   const list = state.parentNotifications;
+  if(state.parentNotifError){
+    return `<div class="notif-empty">Couldn't load notifications. <button class="btn btn-outline btn-sm" id="notif-retry" style="margin-top:8px;">Retry</button></div>`;
+  }
   if(list === null || list === undefined){
     return `<div class="notif-empty">Loading notifications…</div>`;
   }
@@ -5296,7 +5423,7 @@ function renderParentNotifPanel(){
   return list.map(n=>`<div class="notif-item">
     <div class="notif-title">${n.title||''}</div>
     <div class="notif-msg">${n.message||''}</div>
-    <div class="notif-meta">${n.audienceLabel||'All Parents'} · ${relativeTime(n.createdAt)}</div>
+    <div class="notif-meta">${n.audienceLabel||'All Parents'} · ${relativeTime(n.createdAt)}${n.editedAt?' · edited':''}</div>
   </div>`).join('');
 }
 function renderParentShell(){
@@ -5384,13 +5511,18 @@ function refreshParentNotifications(){
   const session = state.parentSession;
   const pd = state.parentData;
   if(!session || !pd) return;
-  if(state.parentNotifications){
-    return; // already loaded this session; avoids a re-fetch on every re-render
-  }
+  // Always fetches fresh (no "already loaded, skip" gate) — a stale cache
+  // was exactly why a newly-sent notification wasn't showing up without a
+  // full re-login. This runs on every shell render (nav clicks, tab
+  // switches), which for a small per-org collection like this is cheap.
+  if(state._parentNotifFetchInFlight) return;
+  state._parentNotifFetchInFlight = true;
   fetchParentNotifications(session.organizationId, pd.cls.id).then(list=>{
     state.parentNotifications = list;
+    state.parentNotifError = false;
     const listEl = document.getElementById('parent-notif-list');
     if(listEl) listEl.innerHTML = renderParentNotifPanel();
+    wireNotifRetry();
     const bellBtn = document.querySelector('[data-action="toggle-parent-notif"]');
     const unread = parentUnreadNotifCount();
     if(bellBtn){
@@ -5401,9 +5533,18 @@ function refreshParentNotifications(){
       } else if(dot){ dot.remove(); }
     }
   }).catch(err=>{
-    console.error('Failed to load notifications:', err);
-    state.parentNotifications = [];
+    console.error('Failed to load notifications (check that your Firestore rules grant read access to organizations/{orgId}/notifications for signed-in/anonymous users):', err);
+    state.parentNotifError = true;
+    const listEl = document.getElementById('parent-notif-list');
+    if(listEl) listEl.innerHTML = renderParentNotifPanel();
+    wireNotifRetry();
+  }).finally(()=>{
+    state._parentNotifFetchInFlight = false;
   });
+}
+function wireNotifRetry(){
+  const retryBtn = document.getElementById('notif-retry');
+  if(retryBtn) retryBtn.onclick = ()=> refreshParentNotifications();
 }
 function renderParentTimetable(root){
   if(!root) return;
