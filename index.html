@@ -639,6 +639,7 @@ const ICONS = {
   save: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>',
   lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
   mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
   reset: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
   trend: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
@@ -766,6 +767,9 @@ function resetSessionState(){
   state.activeClass = null;
   state.quickIdx = 0;
   state.quickStatus = {};
+  state.quickMarksSetup = null;
+  state.quickMarksIdx = 0;
+  state.quickMarksEntries = {};
   state.rcStatus = {};
   state.rcDirty = false;
   state._rcKey = null;
@@ -1665,7 +1669,7 @@ async function fetchParentChildData(organizationId, studentId){
   marksSnap.forEach(d=>{
     const m = { id:d.id, ...d.data() };
     const cls = classesById[m.classId];
-    const pct = m.maxMarks ? Math.round((m.marks/m.maxMarks)*1000)/10 : 0;
+    const pct = m.absent ? null : (m.maxMarks ? Math.round((m.marks/m.maxMarks)*1000)/10 : 0);
     marks.push({ ...m, subject: m.subject || (cls?cls.subject:'—'), pct });
   });
 
@@ -1689,6 +1693,9 @@ const state = {
   toastTimer: null,
   quickIdx: 0,
   quickStatus: {},
+  quickMarksSetup: null,   // { examName, subject, classId, maxMarks } set by openQuickMarksSetupModal()
+  quickMarksIdx: 0,
+  quickMarksEntries: {},   // { [studentId]: { marks, absent } } collected while stepping through renderQuickMarks()
   rcStatus: {},
   rcDirty: false,
   charts: {},
@@ -1795,7 +1802,7 @@ function comparePictoStats(groupId, studentIds, fromDate, toDate){
       if(status){ total++; if(status==='Present') present++; }
     });
     const attendancePct = total ? Math.round(present/total*100) : 0;
-    const relevantMarks = (data.marks||[]).filter(m=>m.studentId===sid && periodIds.has(m.classId) && _inRange(m.date, fromDate, toDate));
+    const relevantMarks = (data.marks||[]).filter(m=>m.studentId===sid && periodIds.has(m.classId) && !m.absent && _inRange(m.date, fromDate, toDate));
     const marksAvg = relevantMarks.length
       ? Math.round(relevantMarks.reduce((sum,m)=> sum + (m.maxMarks ? (m.marks/m.maxMarks*100) : 0), 0) / relevantMarks.length)
       : 0;
@@ -1815,7 +1822,7 @@ function comparePictoClassStats(groupIds, fromDate, toDate){
       Object.values(rec.records).forEach(status=>{ total++; if(status==='Present') present++; });
     });
     const attendancePct = total ? Math.round(present/total*100) : 0;
-    const relevantMarks = (data.marks||[]).filter(m=>periodIds.has(m.classId) && _inRange(m.date, fromDate, toDate));
+    const relevantMarks = (data.marks||[]).filter(m=>periodIds.has(m.classId) && !m.absent && _inRange(m.date, fromDate, toDate));
     const marksAvg = relevantMarks.length
       ? Math.round(relevantMarks.reduce((sum,m)=> sum + (m.maxMarks ? (m.marks/m.maxMarks*100) : 0), 0) / relevantMarks.length)
       : 0;
@@ -2275,6 +2282,7 @@ function render(){
   if(state.stage==='auth'){ app.innerHTML = renderAuth(); attachAuthEvents(); return; }
   if(state.stage==='parent'){ app.innerHTML = renderParentShell(); attachParentShellEvents(); return; }
   if(state.view==='quickroll'){ app.innerHTML = renderQuickRoll(); attachQuickRollEvents(); return; }
+  if(state.view==='quickmarks'){ app.innerHTML = renderQuickMarks(); attachQuickMarksEvents(); return; }
   app.innerHTML = renderShell();
   attachShellEvents();
   renderView();
@@ -4027,13 +4035,17 @@ function renderMarks(root){
   const enrich = (rawMarks)=> rawMarks.map(m=>{
     const student = students.find(s=>s.id===m.studentId);
     const cls = classes.find(c=>c.id===m.classId);
-    const pct = m.maxMarks ? Math.round((m.marks/m.maxMarks)*1000)/10 : 0;
+    const pct = m.absent ? null : (m.maxMarks ? Math.round((m.marks/m.maxMarks)*1000)/10 : 0);
     return { ...m, studentName: student?student.name:'Unknown Student', className: cls?`${cls.name}${cls.section}`:'—', subject: m.subject || (cls?cls.subject:'—'), pct };
   });
 
   const applyFilters = (enriched)=> enriched.filter(m=>{
     if(classFilter!=='All' && m.classId!==classFilter) return false;
     if(subjectFilter!=='All' && m.subject!==subjectFilter) return false;
+    // A % filter doesn't apply to an absence (there's no score to compare),
+    // so an active min/max filter excludes absent entries entirely rather
+    // than treating a missing score as 0%.
+    if((minFilter!==null || maxFilter!==null) && m.absent) return false;
     if(minFilter!==null && !isNaN(minFilter) && m.pct<minFilter) return false;
     if(maxFilter!==null && !isNaN(maxFilter) && m.pct>maxFilter) return false;
     return true;
@@ -4042,15 +4054,20 @@ function renderMarks(root){
   const draw = (rawMarks, totalCountLabel, loading)=>{
     const enriched = enrich(rawMarks);
     const filtered = applyFilters(enriched);
-    const avg = filtered.length ? Math.round((filtered.reduce((s,m)=>s+m.pct,0)/filtered.length)*10)/10 : 0;
-    const highest = filtered.length ? Math.max(...filtered.map(m=>m.pct)) : 0;
-    const lowest = filtered.length ? Math.min(...filtered.map(m=>m.pct)) : 0;
+    // Absences don't have a score, so they're excluded from average/
+    // highest/lowest (an absence isn't a 0%) but still counted in
+    // "Entries Shown" since they were still logged.
+    const scored = filtered.filter(m=>!m.absent);
+    const avg = scored.length ? Math.round((scored.reduce((s,m)=>s+m.pct,0)/scored.length)*10)/10 : 0;
+    const highest = scored.length ? Math.max(...scored.map(m=>m.pct)) : 0;
+    const lowest = scored.length ? Math.min(...scored.map(m=>m.pct)) : 0;
 
     root.innerHTML = `
       <div class="page-head">
         <div><h1>Marks</h1><p>${totalCountLabel}</p></div>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-outline" id="marks-export" ${loading?'disabled':''}>${ic('download')} Export CSV</button>
+          <button class="btn btn-mint" id="marks-quick">${ic('bolt')} Quick Marks Entry</button>
           <button class="btn btn-primary" id="marks-add">${ic('plus')} Add Marks</button>
         </div>
       </div>
@@ -4084,7 +4101,7 @@ function renderMarks(root){
         <div class="card statbox"><div class="n" style="color:${T.red}">${loading?'…':lowest+'%'}</div><div class="l">Lowest Score</div></div>
       </div>
 
-      ${singleStudent && !loading ? renderStudentMarksAnalysis(singleStudent, filtered) : ''}
+      ${singleStudent && !loading ? renderStudentMarksAnalysis(singleStudent, filtered.filter(m=>!m.absent)) : ''}
       ${singleStudent && loading ? `<div class="card" style="padding:22px;margin-bottom:20px;"><div class="empty"><div class="empty-txt">Loading ${singleStudent.name}'s full marks history…</div></div></div>` : ''}
 
       <div class="card table-wrap">
@@ -4099,8 +4116,8 @@ function renderMarks(root){
               <td>${m.className}</td>
               <td style="color:var(--slate)">${m.subject}</td>
               <td style="color:var(--slate)">${m.examName}</td>
-              <td>${m.marks} / ${m.maxMarks}</td>
-              <td style="font-weight:700;color:${m.pct<40?T.red:m.pct<75?T.amber:T.mintDeep}">${m.pct}%</td>
+              <td>${m.absent ? `<span style="color:${T.red};font-weight:700;">Absent</span>` : `${m.marks} / ${m.maxMarks}`}</td>
+              <td style="font-weight:700;color:${m.absent?'var(--slate)':(m.pct<40?T.red:m.pct<75?T.amber:T.mintDeep)}">${m.absent?'—':m.pct+'%'}</td>
               <td>
                 <div class="row-actions">
                   <button class="icon-btn" data-action="edit-mark" data-mid="${m.id}">${ic('edit').replace('<svg','<svg style="width:14px;height:14px;color:var(--slate)"')}</button>
@@ -4123,10 +4140,11 @@ function renderMarks(root){
     const clearBtn = document.getElementById('mk-clear');
     if(clearBtn) clearBtn.onclick = ()=>{ state._markClassFilter='All'; state._markSubjectFilter='All'; state._markStudentFilter='All'; state._markMin=''; state._markMax=''; renderMarks(root); };
 
-    document.getElementById('marks-add').onclick = ()=> openMarkModal(null, studentFilter!=='All'?studentFilter:null, classFilter!=='All'?classFilter:null);
+    document.getElementById('marks-add').onclick = ()=> openBulkMarksModal(classFilter!=='All'?classFilter:null);
+    document.getElementById('marks-quick').onclick = ()=> openQuickMarksSetupModal(classFilter!=='All'?classFilter:null);
     if(!loading){
       document.getElementById('marks-export').onclick = ()=>{
-        const rows=[["Date","Student","Class","Subject","Exam","Marks","Max Marks","Percentage"], ...filtered.map(m=>[csvDateCell(m.date),m.studentName,m.className,m.subject,m.examName,m.marks,m.maxMarks,m.pct+'%'])];
+        const rows=[["Date","Student","Class","Subject","Exam","Marks","Max Marks","Percentage"], ...filtered.map(m=>[csvDateCell(m.date),m.studentName,m.className,m.subject,m.examName,m.absent?'AB':m.marks,m.maxMarks,m.absent?'AB':m.pct+'%'])];
         const csv = rows.map(r=>r.map((v,i)=> i===0 ? v : `"${String(v).replace(/"/g,'""')}"`).join(",")).join(String.fromCharCode(10));
         const blob = new Blob(['\uFEFF'+csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='marks.csv'; a.click();
         showToast('Marks exported to CSV');
@@ -4281,9 +4299,15 @@ function openMarkModal(markId, presetStudentId, presetClassId){
         <div class="field"><label>Exam / Test Name</label><input required name="examName" class="input" placeholder="Unit Test 1" value="${mark?mark.examName:''}"/></div>
       </div>
       <div class="modal-grid2">
-        <div class="field"><label>Marks Obtained</label><input required type="number" min="-500" step="0.5" name="marks" class="input" value="${mark?mark.marks:''}"/></div>
+        <div class="field">
+          <label>Marks Obtained</label>
+          <input type="number" min="0" step="0.5" name="marks" id="em-marks" class="input" value="${mark&&!mark.absent?mark.marks:''}" ${mark&&mark.absent?'disabled':''}/>
+        </div>
         <div class="field"><label>Maximum Marks</label><input required type="number" min="1" step="0.5" name="maxMarks" class="input" value="${mark?mark.maxMarks:100}"/></div>
       </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin:-4px 0 16px;cursor:pointer;">
+        <input type="checkbox" name="absent" id="em-absent" ${mark&&mark.absent?'checked':''}/> Student was absent for this test
+      </label>
       <div class="field"><label>Date</label><input required type="date" name="date" class="input" value="${mark?mark.date:todayStr()}"/></div>
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
@@ -4295,20 +4319,31 @@ function openMarkModal(markId, presetStudentId, presetClassId){
   const close = ()=> overlay.remove();
   overlay.querySelector('#modal-close').onclick = close;
   overlay.querySelector('#modal-cancel').onclick = close;
+  overlay.querySelector('#em-absent').onchange = (e)=>{
+    const marksInput = overlay.querySelector('#em-marks');
+    marksInput.disabled = e.target.checked;
+    if(e.target.checked) marksInput.value = '';
+  };
   overlay.querySelector('#mark-form').onsubmit = async (e)=>{
     e.preventDefault();
     const fd = new FormData(e.target);
     const cls = classes.find(c=>c.id===fd.get('classId'));
-    const marksVal = Number(fd.get('marks'));
+    const isAbsent = fd.get('absent') === 'on';
     const maxVal = Number(fd.get('maxMarks'));
     if(maxVal<=0){ showToast('Maximum marks must be greater than 0'); return; }
-    if(marksVal>maxVal){ showToast('Marks obtained cannot exceed maximum marks'); return; }
+    let marksVal = null;
+    if(!isAbsent){
+      marksVal = Number(fd.get('marks'));
+      if(fd.get('marks')===''){ showToast('Enter marks obtained, or check "Student was absent"'); return; }
+      if(marksVal>maxVal){ showToast('Marks obtained cannot exceed maximum marks'); return; }
+    }
     const payload = {
       studentId: fd.get('studentId'),
       classId: fd.get('classId'),
       subject: String(fd.get('subject')||'').trim() || (cls?cls.subject:''),
       examName: String(fd.get('examName')).trim(),
       marks: marksVal,
+      absent: isAbsent,
       maxMarks: maxVal,
       date: fd.get('date')
     };
@@ -4335,6 +4370,331 @@ function openMarkModal(markId, presetStudentId, presetClassId){
   overlay.querySelector('[name="studentId"]').onchange = (e)=>{
     const firstClass = periodsForStudent(e.target.value)[0];
     if(firstClass){ const clsSel = overlay.querySelector('[name="classId"]'); if(clsSel) clsSel.value = firstClass.id; }
+  };
+}
+
+/* ============================================================================
+   ADD MARKS — bulk entry for a whole class at once (Test Name, Subject,
+   Class, Max Marks, then one row per enrolled student with a marks field
+   or an Absent checkbox). Replaces the old one-student-at-a-time modal for
+   adding; openMarkModal() above is still used for editing a single entry.
+============================================================================ */
+function openBulkMarksModal(presetClassId){
+  const data = state.data;
+  const classes = data.classes || [];
+  if(classes.length===0){ showToast('Add a class first'); state.view='classes'; render(); return; }
+  let classId = presetClassId || classes[0].id;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="card modal" style="max-width:520px;">
+    <div class="modal-head"><h3>Add Marks</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
+    <form id="bulk-mark-form">
+      <div class="modal-grid2">
+        <div class="field"><label>Test Name</label><input required name="examName" class="input" placeholder="Unit Test 1"/></div>
+        <div class="field"><label>Subject</label><input name="subject" id="bm-subject" class="input" placeholder="Maths" value="${(classes.find(c=>c.id===classId)||{}).subject||''}"/></div>
+      </div>
+      <div class="modal-grid2">
+        <div class="field">
+          <label>Class</label>
+          <select name="classId" id="bm-class" class="input" style="width:100%;">
+            ${classes.map(c=>`<option value="${c.id}" ${c.id===classId?'selected':''}>${c.name}${c.section}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Maximum Marks</label><input required type="number" min="1" step="0.5" name="maxMarks" id="bm-max" class="input" value="100"/></div>
+      </div>
+      <div class="field">
+        <label>Students</label>
+        <div id="bm-rows" style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:12px;padding:10px 12px;"></div>
+      </div>
+      <div style="font-size:12px;color:var(--slate);margin:-8px 0 16px;">Leave a student's marks blank to skip them for this test.</div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Marks</button>
+      </div>
+    </form>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close = ()=> overlay.remove();
+  overlay.querySelector('#modal-close').onclick = close;
+  overlay.querySelector('#modal-cancel').onclick = close;
+
+  function renderRows(){
+    const roster = rosterFor(classId).sort((a,b)=>a.roll-b.roll);
+    const rowsEl = overlay.querySelector('#bm-rows');
+    rowsEl.innerHTML = roster.length===0
+      ? `<div style="font-size:13px;color:var(--slate);">No students enrolled in this class yet.</div>`
+      : roster.map(s=>`
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.name}</div>
+            <div style="font-size:11px;color:var(--slate);">Roll #${s.roll}</div>
+          </div>
+          <input type="number" min="0" step="0.5" class="input bm-marks" data-sid="${s.id}" placeholder="Marks" style="width:90px;"/>
+          <label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;">
+            <input type="checkbox" class="bm-absent" data-sid="${s.id}"/> Absent
+          </label>
+        </div>
+      `).join('');
+    rowsEl.querySelectorAll('.bm-absent').forEach(cb=>{
+      cb.onchange = ()=>{
+        const marksInput = rowsEl.querySelector(`.bm-marks[data-sid="${cb.getAttribute('data-sid')}"]`);
+        marksInput.disabled = cb.checked;
+        if(cb.checked) marksInput.value = '';
+      };
+    });
+  }
+  renderRows();
+
+  overlay.querySelector('#bm-class').onchange = (e)=>{
+    classId = e.target.value;
+    const subjInput = overlay.querySelector('#bm-subject');
+    if(subjInput && !subjInput.value){ const cls = classes.find(c=>c.id===classId); subjInput.value = cls?cls.subject:''; }
+    renderRows();
+  };
+
+  overlay.querySelector('#bulk-mark-form').onsubmit = async (e)=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const examName = String(fd.get('examName')).trim();
+    const cls = classes.find(c=>c.id===classId);
+    const subject = String(fd.get('subject')||'').trim() || (cls?cls.subject:'');
+    const maxMarks = Number(fd.get('maxMarks'));
+    if(maxMarks<=0){ showToast('Maximum marks must be greater than 0'); return; }
+    const roster = rosterFor(classId);
+    const date = todayStr();
+    const entries = [];
+    let skipped = 0, invalid = false;
+    roster.forEach(s=>{
+      const marksInput = overlay.querySelector(`.bm-marks[data-sid="${s.id}"]`);
+      const absentBox = overlay.querySelector(`.bm-absent[data-sid="${s.id}"]`);
+      const isAbsent = absentBox && absentBox.checked;
+      const raw = marksInput ? marksInput.value : '';
+      if(isAbsent){
+        entries.push({ studentId:s.id, classId, subject, examName, marks:null, absent:true, maxMarks, date });
+      } else if(raw !== ''){
+        const val = Number(raw);
+        if(val>maxMarks){ invalid = true; return; }
+        entries.push({ studentId:s.id, classId, subject, examName, marks:val, absent:false, maxMarks, date });
+      } else {
+        skipped++;
+      }
+    });
+    if(invalid){ showToast('Marks obtained cannot exceed maximum marks'); return; }
+    if(entries.length===0){ showToast('Enter marks (or mark Absent) for at least one student'); return; }
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    if(!data.marks) data.marks = [];
+    entries.forEach((payload, i)=>{
+      const id = `M${Date.now()}${i}${Math.floor(Math.random()*10000)}`;
+      data.marks.push({ id, ...payload });
+    });
+    state._marksCache = null;
+    state._studentMarksCache = null;
+    try{
+      await persist(data);
+      showToast(`Marks saved for ${entries.length} student${entries.length===1?'':'s'}${skipped?` (${skipped} skipped)`:''}`);
+      close();
+      renderView();
+    }catch(err){
+      console.error('Failed to save marks:', err);
+      showToast('Could not save — try again');
+      submitBtn.disabled = false;
+    }
+  };
+}
+
+/* ============================================================================
+   QUICK MARKS ENTRY — one student at a time, mirrors Quick Roll Call's
+   full-screen step-through UX but for marks instead of attendance status.
+   A short setup modal collects the test details, then renderQuickMarks()
+   steps through the class roster one student per screen.
+============================================================================ */
+function openQuickMarksSetupModal(presetClassId){
+  const data = state.data;
+  const classes = data.classes || [];
+  if(classes.length===0){ showToast('Add a class first'); state.view='classes'; render(); return; }
+  const classId = presetClassId || classes[0].id;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="card modal">
+    <div class="modal-head"><h3>Quick Marks Entry</h3><button class="modal-close" id="modal-close">${ic('x')}</button></div>
+    <form id="qm-setup-form">
+      <div class="modal-grid2">
+        <div class="field"><label>Test Name</label><input required name="examName" class="input" placeholder="Unit Test 1"/></div>
+        <div class="field"><label>Subject</label><input name="subject" id="qm-subject" class="input" placeholder="Maths" value="${(classes.find(c=>c.id===classId)||{}).subject||''}"/></div>
+      </div>
+      <div class="modal-grid2">
+        <div class="field">
+          <label>Class</label>
+          <select name="classId" id="qm-class" class="input" style="width:100%;">
+            ${classes.map(c=>`<option value="${c.id}" ${c.id===classId?'selected':''}>${c.name}${c.section}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Maximum Marks</label><input required type="number" min="1" step="0.5" name="maxMarks" class="input" value="100"/></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-mint">${ic('bolt')} Start</button>
+      </div>
+    </form>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close = ()=> overlay.remove();
+  overlay.querySelector('#modal-close').onclick = close;
+  overlay.querySelector('#modal-cancel').onclick = close;
+  overlay.querySelector('#qm-class').onchange = (e)=>{
+    const subjInput = overlay.querySelector('#qm-subject');
+    if(subjInput && !subjInput.value){ const cls = classes.find(c=>c.id===e.target.value); subjInput.value = cls?cls.subject:''; }
+  };
+  overlay.querySelector('#qm-setup-form').onsubmit = (e)=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const chosenClassId = fd.get('classId');
+    const roster = rosterFor(chosenClassId);
+    if(roster.length===0){ showToast('No students enrolled in this class yet'); return; }
+    const maxMarks = Number(fd.get('maxMarks'));
+    if(maxMarks<=0){ showToast('Maximum marks must be greater than 0'); return; }
+    const cls = classes.find(c=>c.id===chosenClassId);
+    state.quickMarksSetup = {
+      examName: String(fd.get('examName')).trim(),
+      subject: String(fd.get('subject')||'').trim() || (cls?cls.subject:''),
+      classId: chosenClassId,
+      maxMarks
+    };
+    state.quickMarksIdx = 0;
+    state.quickMarksEntries = {};
+    close();
+    state.view = 'quickmarks';
+    render();
+  };
+}
+
+function renderQuickMarks(){
+  const data = state.data;
+  const setup = state.quickMarksSetup;
+  const exitOverlay = (msg)=>`<div class="qr-overlay"><div class="qr-top"><button class="qr-exit" data-action="qm-exit">${ic('arrowLeft')} Back</button></div><div class="qr-body"><div style="color:#fff;font-weight:600;">${msg}</div></div></div>`;
+  if(!setup) return exitOverlay('No test set up yet.');
+  const cls = (data.classes||[]).find(c=>c.id===setup.classId);
+  const roster = rosterFor(setup.classId).sort((a,b)=>a.roll-b.roll);
+  if(roster.length===0) return exitOverlay(`No students in ${cls?`${cls.name}${cls.section}`:'this class'}.`);
+  const idx = Math.min(state.quickMarksIdx, roster.length-1);
+  const current = roster[idx];
+  const entry = state.quickMarksEntries[current.id];
+  const isAbsent = !!(entry && entry.absent);
+
+  return `<div class="qr-overlay">
+    <div class="qr-top">
+      <button class="qr-exit" data-action="qm-exit">${ic('arrowLeft')} Exit Quick Marks</button>
+      <div class="qr-classname">${setup.examName}${setup.subject?` · ${setup.subject}`:''} — ${cls?`${cls.name}${cls.section}`:''}</div>
+    </div>
+    <div class="qr-body">
+      <div class="qr-progtxt">Student ${idx+1} / ${roster.length}</div>
+      <div class="qr-progbar"><div class="qr-progbar-fill" style="width:${(idx+1)/roster.length*100}%"></div></div>
+      <div class="qr-avatar">
+        ${initials(current.name)}
+        ${entry?`<div class="qr-status-pill" style="background:${isAbsent?T.red:T.mintDeep}">${isAbsent?'Absent':`${entry.marks}/${setup.maxMarks}`}</div>`:''}
+      </div>
+      <div class="qr-name">${current.name}</div>
+      <div class="qr-sub">Roll #${current.roll} · ${cls?`${cls.name}${cls.section}`:''}</div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:14px;margin-top:14px;">
+        <input type="number" min="0" max="${setup.maxMarks}" step="0.5" id="qm-marks-input" placeholder="Marks out of ${setup.maxMarks}"
+          value="${entry&&!isAbsent?entry.marks:''}" ${isAbsent?'disabled':''}
+          style="width:230px;text-align:center;font-size:26px;font-weight:800;padding:14px;border-radius:16px;border:none;outline:none;"/>
+        <button id="qm-absent-toggle" style="border:none;cursor:pointer;padding:10px 20px;border-radius:999px;font-weight:700;font-size:13px;background:${isAbsent?T.red:'rgba(255,255,255,.14)'};color:#fff;">
+          ${isAbsent?'✓ Marked Absent — click to undo':'Mark Absent'}
+        </button>
+      </div>
+      <div class="qr-hint" style="margin-top:24px;">
+        <button data-action="qm-prev">${ic('chevLeft')} Prev (←)</button>
+        <span class="qr-kbd-only">Enter = next</span>
+        <button data-action="qm-next">Next (→) ${ic('chevRight')}</button>
+      </div>
+    </div>
+    <div class="qr-bottom"><button class="btn btn-mint btn-lg" data-action="qm-finish">${ic('save')} Finish & Save Marks</button></div>
+  </div>`;
+}
+
+function attachQuickMarksEvents(){
+  const data = state.data;
+  const setup = state.quickMarksSetup;
+  const exitToMarks = ()=>{
+    if(Object.keys(state.quickMarksEntries).length>0 && !confirm('Discard the marks you\'ve entered so far?')) return;
+    document.onkeydown = null;
+    state.quickMarksSetup = null; state.quickMarksEntries = {}; state.quickMarksIdx = 0;
+    state.view='marks'; render();
+  };
+  const bindExit = ()=>{ const b=document.querySelector('[data-action="qm-exit"]'); if(b) b.onclick = exitToMarks; };
+  if(!setup){ bindExit(); return; }
+  const roster = rosterFor(setup.classId).sort((a,b)=>a.roll-b.roll);
+  if(roster.length===0){ bindExit(); return; }
+
+  const idx = Math.min(state.quickMarksIdx, roster.length-1);
+  const current = roster[idx];
+
+  const marksInput = document.getElementById('qm-marks-input');
+  if(marksInput){
+    marksInput.oninput = ()=>{
+      const val = marksInput.value;
+      if(val === '') delete state.quickMarksEntries[current.id];
+      else state.quickMarksEntries[current.id] = { marks: Number(val), absent:false };
+    };
+    marksInput.focus();
+    marksInput.select();
+  }
+  const absentToggle = document.getElementById('qm-absent-toggle');
+  if(absentToggle){
+    absentToggle.onclick = ()=>{
+      const entry = state.quickMarksEntries[current.id];
+      if(entry && entry.absent) delete state.quickMarksEntries[current.id];
+      else state.quickMarksEntries[current.id] = { marks:null, absent:true };
+      render();
+    };
+  }
+  const goNext = ()=>{ state.quickMarksIdx = Math.min(idx+1, roster.length-1); render(); };
+  const goPrev = ()=>{ state.quickMarksIdx = Math.max(idx-1, 0); render(); };
+  const nextBtn = document.querySelector('[data-action="qm-next"]'); if(nextBtn) nextBtn.onclick = goNext;
+  const prevBtn = document.querySelector('[data-action="qm-prev"]'); if(prevBtn) prevBtn.onclick = goPrev;
+  const exitBtn = document.querySelector('[data-action="qm-exit"]'); if(exitBtn) exitBtn.onclick = exitToMarks;
+
+  const finishBtn = document.querySelector('[data-action="qm-finish"]');
+  if(finishBtn) finishBtn.onclick = async ()=>{
+    const entries = Object.entries(state.quickMarksEntries);
+    if(entries.length===0){ showToast('Enter marks for at least one student first'); return; }
+    finishBtn.disabled = true;
+    if(!data.marks) data.marks = [];
+    const date = todayStr();
+    entries.forEach(([sid, e], i)=>{
+      const id = `M${Date.now()}${i}${Math.floor(Math.random()*10000)}`;
+      data.marks.push({
+        id, studentId: sid, classId: setup.classId, subject: setup.subject,
+        examName: setup.examName, marks: e.absent?null:e.marks, absent: !!e.absent,
+        maxMarks: setup.maxMarks, date
+      });
+    });
+    state._marksCache = null;
+    state._studentMarksCache = null;
+    try{
+      await persist(data);
+      showToast(`Marks saved for ${entries.length} student${entries.length===1?'':'s'}`);
+      document.onkeydown = null;
+      state.quickMarksSetup = null; state.quickMarksEntries = {}; state.quickMarksIdx = 0;
+      state.view = 'marks'; render();
+    }catch(err){
+      console.error('Failed to save quick marks:', err);
+      showToast('Could not save — try again');
+      finishBtn.disabled = false;
+    }
+  };
+
+  document.onkeydown = (e)=>{
+    if(state.view!=='quickmarks') return;
+    const inMarksField = document.activeElement && document.activeElement.id==='qm-marks-input';
+    if(e.key==='Enter'){ e.preventDefault(); goNext(); }
+    else if(e.key==='Escape'){ exitToMarks(); }
+    else if(!inMarksField && e.key==='ArrowRight'){ goNext(); }
+    else if(!inMarksField && e.key==='ArrowLeft'){ goPrev(); }
   };
 }
 
