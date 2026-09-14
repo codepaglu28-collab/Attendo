@@ -273,7 +273,7 @@ select.input{width:auto;}
 .gsr-ic{width:28px; height:28px; border-radius:9px; display:grid; place-items:center; flex-shrink:0; background:var(--blue-soft);}
 .bell-wrap{position:relative;}
 .bell-dot{position:absolute; top:-4px; right:-4px; width:16px; height:16px; border-radius:999px; background:var(--red); color:#fff; font-size:9px; font-weight:800; display:grid; place-items:center;}
-.notif-panel{position:absolute; top:calc(100% + 10px); right:0; width:320px; max-height:420px; overflow-y:auto; background:#fff; border:1px solid var(--border); border-radius:14px; box-shadow:0 24px 44px -14px rgba(11,30,61,.22); z-index:300; display:none;}
+.notif-panel{position:absolute; top:calc(100% + 10px); right:0; width:320px; max-width:calc(100vw - 32px); max-height:420px; overflow-y:auto; background:#fff; border:1px solid var(--border); border-radius:14px; box-shadow:0 24px 44px -14px rgba(11,30,61,.22); z-index:300; display:none;}
 .notif-panel.open{display:block;}
 .notif-panel-head{padding:14px 16px 10px; font-size:13px; font-weight:800; color:var(--navy); border-bottom:1px solid var(--border);}
 .notif-item{padding:12px 16px; border-bottom:1px solid var(--border);}
@@ -5430,13 +5430,11 @@ function renderParentShell(){
   const pd = state.parentData;
   const student = pd ? pd.student : {name:'Student'};
   const unread = parentUnreadNotifCount();
-  const bellBtn = `<div class="bell-wrap">
-      <button class="btn btn-outline btn-sm" data-action="toggle-parent-notif" title="Notifications">${ic('bell').replace('<svg','<svg style="width:13px;height:13px"')}${unread>0?`<span class="bell-dot">${unread>9?'9+':unread}</span>`:''}</button>
-      <div class="notif-panel" id="parent-notif-panel">
+  const bellBtn = `<button class="btn btn-outline btn-sm" data-action="toggle-parent-notif" title="Notifications">${ic('bell').replace('<svg','<svg style="width:13px;height:13px"')}${unread>0?`<span class="bell-dot">${unread>9?'9+':unread}</span>`:''}</button>`;
+  const notifPanel = `<div class="notif-panel" id="parent-notif-panel">
         <div class="notif-panel-head">Notifications</div>
         <div id="parent-notif-list">${renderParentNotifPanel()}</div>
-      </div>
-    </div>`;
+      </div>`;
   return `<div class="shell">
     <div class="sidebar">
       <div class="sidebar-logo">${logoHTML()}</div>
@@ -5454,12 +5452,14 @@ function renderParentShell(){
           <button class="hamburger" data-action="open-drawer">${ic('menu').replace('<svg','<svg style="width:20px;height:20px"')}</button>
           <span>${state.parentView==='timetable'?'Time Table':'Student Analysis'}</span>
         </div>
-        <div style="display:flex;align-items:center;gap:12px;">
+        <div style="display:flex;align-items:center;gap:12px;position:relative;">
           ${bellBtn}
           <button class="btn btn-outline btn-sm" data-action="logout">${ic('logout').replace('<svg','<svg style="width:13px;height:13px"')} Log Out</button>
+          ${notifPanel}
         </div>
       </div>
       <div class="view" id="view-root"></div>
+
     </div>
     <div class="drawer-overlay" data-action="close-drawer"></div>
     <div class="mobile-drawer">
