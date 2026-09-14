@@ -808,6 +808,8 @@ function resetSessionState(){
   state._markSubjectFilter = 'All';
   state._markStudentFilter = 'All';
   state._markMin = '';
+  state._analysisFrom = null;
+  state._analysisTo = null;
   state._markMax = '';
   state._markFrom = null;
   state._markTo = null;
@@ -4234,6 +4236,7 @@ function renderMarks(root){
     }
     document.querySelectorAll('[data-action="edit-mark"]').forEach(b=>b.onclick=()=> openMarkModal(b.getAttribute('data-mid')));
     document.querySelectorAll('[data-action="delete-mark"]').forEach(b=>b.onclick=()=> deleteMark(b.getAttribute('data-mid')));
+    if(singleStudent && !loading) attachMarksAnalysisEvents();
   };
 
   /*
@@ -4289,7 +4292,20 @@ function renderMarks(root){
   });
 }
 
-function renderStudentMarksAnalysis(student, allRecords){
+function renderStudentMarksAnalysis(student, allRecordsIn){
+  // Date-range tab: state._analysisFrom/_analysisTo (shared filter — set
+  // via the inputs rendered just below the card title) narrows every
+  // section of this card (subject averages, trend, exam list) down to
+  // one window, without touching the wider filters on the Marks page
+  // or the parent dashboard's own attendance/marks fetch.
+  const rangeFrom = state._analysisFrom || '';
+  const rangeTo = state._analysisTo || '';
+  const allRecords = allRecordsIn.filter(m=>{
+    if(rangeFrom && m.date < rangeFrom) return false;
+    if(rangeTo && m.date > rangeTo) return false;
+    return true;
+  });
+
   // allRecords includes absences (m.absent===true, m.pct===null) — those
   // are excluded from averages/trend below but still shown, in red, in
   // the exam-by-exam list so a parent/teacher can see an absence at a
@@ -4314,7 +4330,12 @@ function renderStudentMarksAnalysis(student, allRecords){
 
   return `<div class="card" style="padding:22px;margin-bottom:20px;">
     <div class="chart-title">${student.name} — Deep Analysis</div>
-    ${allRecords.length===0?`<div class="empty"><div class="empty-txt">No marks recorded for this student yet.</div></div>`:`
+    <div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;margin:14px 0 18px;padding:12px;background:var(--surface-2);border-radius:12px;">
+      <div class="field" style="margin:0;"><label style="font-size:11px;">From</label><input type="date" id="ma-from" class="input" value="${rangeFrom}"/></div>
+      <div class="field" style="margin:0;"><label style="font-size:11px;">To</label><input type="date" id="ma-to" class="input" value="${rangeTo}"/></div>
+      ${(rangeFrom||rangeTo)?`<button class="btn btn-outline btn-sm" id="ma-clear-range">${ic('x').replace('<svg','<svg style="width:12px;height:12px"')} Clear</button>`:''}
+    </div>
+    ${allRecordsIn.length===0?`<div class="empty"><div class="empty-txt">No marks recorded for this student yet.</div></div>`:allRecords.length===0?`<div class="empty"><div class="empty-txt">No marks in this date range.</div></div>`:`
     <div class="mk-analysis-grid">
       <div>
         <div style="font-size:12.5px;font-weight:700;color:var(--slate);margin-bottom:10px;">Average by Subject</div>
@@ -4334,7 +4355,7 @@ function renderStudentMarksAnalysis(student, allRecords){
         <div style="font-size:12.5px;font-weight:700;color:var(--slate);margin-bottom:10px;">Score Trend (oldest → newest)</div>
         <div style="display:flex;align-items:flex-end;gap:6px;height:140px;">
           ${trend.length===0?`<div style="font-size:12.5px;color:var(--slate);align-self:center;">No scored exams yet.</div>`:trend.map(m=>`
-            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;" title="${m.subject} — ${prettyDate(m.date)} — ${m.pct}%">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;" title="${m.subject} — ${prettyDate(m.date)} — ${m.marks}/${m.maxMarks}">
               <div style="width:100%;max-width:22px;border-radius:5px 5px 0 0;background:${m.pct<40?T.red:m.pct<75?T.amber:T.mintDeep};height:${Math.max((m.pct/maxPct)*100,4)}%;"></div>
             </div>
           `).join('')}
@@ -4349,10 +4370,18 @@ function renderStudentMarksAnalysis(student, allRecords){
       <div style="font-size:12.5px;font-weight:700;color:var(--slate);margin-bottom:10px;">Exam-by-Exam${absences.length?` <span style="color:${T.red};font-weight:700;">(${absences.length} absence${absences.length>1?'s':''})</span>`:''}</div>
       ${examList.map(m=>`<div class="hist-row">
         <span>${prettyDate(m.date)} · ${m.subject||''} — ${m.examName||''}</span>
-        <span class="badge" style="background:${m.absent?'#FDEBEB':(m.pct<40?'#FDEBEB':m.pct<75?'#FEF3DA':'#E3F8F0')};color:${m.absent?T.red:(m.pct<40?T.red:m.pct<75?T.amber:T.mintDeep)};font-weight:700;">${m.absent?'Absent':m.pct+'%'}</span>
+        <span class="badge" style="background:${m.absent?'#FDEBEB':(m.pct<40?'#FDEBEB':m.pct<75?'#FEF3DA':'#E3F8F0')};color:${m.absent?T.red:(m.pct<40?T.red:m.pct<75?T.amber:T.mintDeep)};font-weight:700;">${m.absent?'Absent':`${m.marks}/${m.maxMarks}`}</span>
       </div>`).join('')}
     </div>`}
   </div>`;
+}
+function attachMarksAnalysisEvents(){
+  const fromEl = document.getElementById('ma-from');
+  const toEl = document.getElementById('ma-to');
+  const clearBtn = document.getElementById('ma-clear-range');
+  if(fromEl) fromEl.onchange = ()=>{ state._analysisFrom = fromEl.value || null; render(); };
+  if(toEl) toEl.onchange = ()=>{ state._analysisTo = toEl.value || null; render(); };
+  if(clearBtn) clearBtn.onclick = ()=>{ state._analysisFrom = null; state._analysisTo = null; render(); };
 }
 
 function findMarkAnywhere(markId){
@@ -5427,6 +5456,7 @@ function renderParentDashboard(root){
         attendance.slice(0,20).map(h=>`<div class="hist-row"><span>${prettyDate(h.date)} · ${h.subject||''}</span><span class="badge" style="background:${STATUS_META[h.status].bg};color:${STATUS_META[h.status].color}">${ic(STATUS_META[h.status].icon).replace('<svg','<svg style="width:12px;height:12px"')} ${h.status}</span></div>`).join('')}
       </div>
     `;
+    if(!loading) attachMarksAnalysisEvents();
   };
 
   if(pd.attendance && pd.marks){ draw(pd.attendance, pd.marks, false); return; }
