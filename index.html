@@ -383,19 +383,19 @@ select.input{width:auto;}
 @media (max-width: 480px){
   /*
    * .student-row packed avatar + roll number + name/class + 4 status
-   * buttons into a single row with fixed widths. On phones those fixed
-   * pieces alone (avatar 36px + roll up to 92px + 4x36px status buttons
-   * + gaps) already exceed the screen width, so .s-info was squeezed to
-   * near zero and the name became unreadable. Wrap onto two lines
-   * instead: avatar + roll + name on top (name gets the full row), the
-   * four status buttons spread across their own row below.
+   * buttons into a single row with fixed widths that alone exceeded the
+   * screen width, squeezing .s-info to near zero so the name was
+   * unreadable. Fix: drop the separate roll column (the roll number now
+   * lives under the name inside .s-info, see markup), shrink the avatar
+   * and status buttons a bit, and keep the four status buttons pinned
+   * to the right — the name block flexes to fill whatever's left.
    */
-  .student-row{flex-wrap:wrap; row-gap:10px; padding:12px 14px;}
-  .s-av{width:30px; height:30px; font-size:11px;}
-  .s-roll{min-width:34px; max-width:44px; font-size:11px;}
+  .student-row{padding:12px 14px; gap:10px;}
+  .s-av{width:32px; height:32px; font-size:11px;}
   .s-name{font-size:13.5px;}
-  .status-btns{flex-basis:100%; justify-content:space-between; gap:8px;}
-  .status-btn{flex:1; width:auto;}
+  .s-sub{font-size:11px;}
+  .status-btns{gap:5px;}
+  .status-btn{width:32px; height:32px; border-radius:10px;}
 }
 
 /* ============================= TABLES ============================= */
@@ -3452,8 +3452,7 @@ function renderRollCall(root){
       ${filtered.length===0?`<div class="empty"><div class="empty-ic">${ic('search').replace('<svg','<svg style="width:20px;height:20px;color:var(--slate)"')}</div><div class="empty-txt">No students match your search.</div></div>`:
       filtered.map(s=>`<div class="student-row">
         <div class="s-av">${initials(s.name)}</div>
-        <div class="s-roll">#${s.roll}</div>
-        <div class="s-info"><div class="s-name">${s.name}</div><div class="s-sub">${cls.name}${cls.section}</div></div>
+        <div class="s-info"><div class="s-name">${s.name}</div><div class="s-sub">#${s.roll} · ${cls.name}${cls.section}</div></div>
         <div class="status-btns">
           ${STATUSES.map(st=>{
             const active = statusMap[s.id]===st, meta=STATUS_META[st];
